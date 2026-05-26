@@ -290,6 +290,7 @@ Sentry.init({
     /Possible side-effect in debug-evaluate/, // Chrome DevTools internal EvalError
     /ConvexError: CONFLICT/, // Expected OCC rejection on concurrent preference saves
     /ConvexError: API_ACCESS_REQUIRED/, // Expected business error: free user opens API Keys tab; client handles gracefully (UnifiedSettings.ts:731-738) — WORLDMONITOR-NA
+    /ConvexError: \{"kind":"FREE_CAP"/, // Expected business error: free user hits followed-countries cap of 3; client catches at src/services/followed-countries.ts:1155 and triggers upgrade UX via src/utils/follow-button.ts:413. Convex's server-side auto-Sentry forwards the throw regardless. Match the object-data prefix uniquely — string `ConvexError: {"kind":"FREE_CAP"` cannot be emitted by our minified bundle. WORLDMONITOR-RV.
     /\[CONVEX [AQM]\(.+?\)\] Connection lost while action was in flight/, // Convex SDK transient WS disconnect
     /^Invalid start version: \d+:\d+:\d+, transitioning from \d+:\d+:\d+$/, // Convex SDK internal sync protocol error from `remote_query_set.js` (server republished query mid-transition or WS reconnect race) — WORLDMONITOR-Q5
     /Response did not contain `success` or `data`/, // DuckDuckGo browser internal tracker/content-block response — never emitted by our code
