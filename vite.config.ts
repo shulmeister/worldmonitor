@@ -133,21 +133,23 @@ function lazyHtmlPreloadGuardPlugin(): Plugin {
   return {
     name: 'lazy-html-preload-guard',
     apply: 'build',
-    generateBundle(_outputOptions, bundle) {
+    enforce: 'post',
+    async writeBundle(outputOptions, bundle) {
+      const outDir = outputOptions.dir;
+      if (!outDir) return;
+
       const violations: string[] = [];
 
-      for (const [fileName, asset] of Object.entries(bundle)) {
-        if (asset.type !== 'asset' || !fileName.endsWith('.html')) continue;
+      await Promise.all(Object.entries(bundle).map(async ([fileName, asset]) => {
+        if (asset.type !== 'asset' || !fileName.endsWith('.html')) return;
 
-        const html = typeof asset.source === 'string'
-          ? asset.source
-          : new TextDecoder().decode(asset.source);
+        const html = await readFile(resolve(outDir, fileName), 'utf8');
         const preloadTags = html.match(HTML_MODULEPRELOAD_TAG_RE) ?? [];
         const matches = preloadTags.filter((tag) => LAZY_HTML_CHUNK_REF_RE.test(tag));
         if (matches.length > 0) {
           violations.push(`${fileName}: ${matches.join(', ')}`);
         }
-      }
+      }));
 
       if (violations.length > 0) {
         this.error(
