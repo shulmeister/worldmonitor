@@ -25,6 +25,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { RESILIENCE_COHORTS } from '../tests/helpers/resilience-cohorts.mts';
 import { MATCHED_PAIRS } from '../tests/helpers/resilience-matched-pairs.mts';
+import wgiIndicatorKeys from '../shared/wgi-indicator-keys.json' with { type: 'json' };
 
 const __filename = fileURLToPath(import.meta.url);
 const REPO_ROOT = path.resolve(path.dirname(__filename), '..');
@@ -399,6 +400,7 @@ const EXTRACTION_RULES = {
 // before the includes() calls at L770-776).
 const AQUASTAT_STRESS_KEYWORDS = ['stress', 'withdrawal', 'dependency'];
 const AQUASTAT_AVAILABILITY_KEYWORDS = ['availability', 'renewable', 'access'];
+const WGI_INDICATOR_KEYS = wgiIndicatorKeys;
 
 function normalizeLowerBetter(value, best, worst) {
   return Math.max(0, Math.min(100, 100 * (1 - (value - best) / (worst - best))));
@@ -433,8 +435,12 @@ const STATIC_EXTRACTORS = {
   'static-wgi': (rule, { staticRecord }) =>
     staticRecord?.wgi?.indicators?.[rule.code]?.value ?? null,
   'static-wgi-mean': (_rule, { staticRecord }) => {
-    const entries = Object.values(staticRecord?.wgi?.indicators ?? {})
-      .map((e) => (typeof e?.value === 'number' ? e.value : null))
+    const indicators = staticRecord?.wgi?.indicators ?? {};
+    const entries = WGI_INDICATOR_KEYS
+      .map((key) => {
+        const value = indicators[key]?.value;
+        return typeof value === 'number' ? value : null;
+      })
       .filter((v) => v != null);
     if (entries.length === 0) return null;
     return entries.reduce((s, v) => s + v, 0) / entries.length;
