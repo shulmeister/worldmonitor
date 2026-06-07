@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, it } from 'node:test';
+import { CII_FORMULA_VERSION } from '../server/worldmonitor/intelligence/v1/_risk-config.ts';
 
 const root = resolve(fileURLToPath(new URL('.', import.meta.url)), '..');
 
@@ -44,6 +45,29 @@ describe('CII docs drift guards', () => {
       'docs/Docs_To_Review/TODO_Performance.md',
       'docs/Docs_To_Review/COMPONENTS.md',
     ];
+    const escapedFormulaVersion = CII_FORMULA_VERSION.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const staleCiiFormulaVersionClaim = new RegExp(
+      String.raw`\bCII\s+(?!${escapedFormulaVersion}\b)v\d+\s+(?:stability|stress|instability|scores?|scoring|formula)\b`,
+      'i',
+    );
+    const stalePublishedCiiVersionClaim = new RegExp(
+      String.raw`\b(?:server-authoritative|published)\s+CII\s+(?:is\s+)?(?:server-authoritative\s+)?(?!${escapedFormulaVersion}\b)v\d+\b`,
+      'i',
+    );
+    const staleCurrentCiiPublishedVersionClaim = new RegExp(
+      String.raw`\bCII\b[^\n.]{0,80}\bserver-authoritative\s+(?!${escapedFormulaVersion}\b)v\d+\s+scores?\b`,
+      'i',
+    );
+    assert.match(
+      'CII currently publishes server-authoritative v6 scores for 31 Tier-1 countries',
+      staleCurrentCiiPublishedVersionClaim,
+      'internal docs guard must catch todo.md-style stale formula-version wording',
+    );
+    assert.doesNotMatch(
+      `CII currently publishes server-authoritative ${CII_FORMULA_VERSION} scores for 31 Tier-1 countries`,
+      staleCurrentCiiPublishedVersionClaim,
+      'internal docs guard must allow the current formula version in todo.md-style wording',
+    );
     const stalePatterns = [
       /22-country CII computation/i,
       /20 hardcoded Tier 1 countries/i,
@@ -51,6 +75,9 @@ describe('CII docs drift guards', () => {
       /\breal-time\s+CII\s+v5\s+instability\s+score\b/i,
       /\bComputes\s+CII\s+v5\s+scores\b/i,
       /\bserver-authoritative\s+CII\s+v5\s+scoring\b/i,
+      staleCiiFormulaVersionClaim,
+      stalePublishedCiiVersionClaim,
+      staleCurrentCiiPublishedVersionClaim,
       /src\/workers\/cii\.worker\.ts/i,
       /src\/components\/CIIPanel\.ts` \(150 lines\)/i,
       /\*\*Country Instability Index\*\* \(`country-instability\.ts`\)/i,
