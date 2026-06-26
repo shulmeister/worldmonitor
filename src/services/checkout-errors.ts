@@ -17,6 +17,7 @@
 export type CheckoutErrorCode =
   | 'unauthorized'
   | 'session_expired'
+  | 'link_expired'
   | 'duplicate_subscription'
   | 'invalid_product'
   | 'service_unavailable'
@@ -35,6 +36,7 @@ export interface CheckoutError {
 const USER_COPY: Record<CheckoutErrorCode, string> = {
   unauthorized: 'Please sign in to continue your purchase.',
   session_expired: 'Your session expired. Sign in again to continue.',
+  link_expired: 'Your payment link expired. Please start checkout again.',
   duplicate_subscription: "You already have an active subscription. Let's open the billing portal instead.",
   invalid_product: "That product isn't available. Please refresh and try again.",
   service_unavailable: 'Checkout is temporarily unavailable. Please try again in a moment.',
@@ -44,6 +46,7 @@ const USER_COPY: Record<CheckoutErrorCode, string> = {
 const RETRYABLE: Record<CheckoutErrorCode, boolean> = {
   unauthorized: true,        // after sign-in
   session_expired: true,     // after sign-in
+  link_expired: true,        // re-initiate checkout (link, not session, expired)
   duplicate_subscription: false,
   invalid_product: false,
   service_unavailable: true,
@@ -122,12 +125,13 @@ export function classifyThrownCheckoutError(caught: unknown): CheckoutError {
 }
 
 /**
- * Classify a synthetic "no Clerk session" or "no token" condition.
- * These don't correspond to an HTTP response, but should still flow
- * through the taxonomy so the toast copy stays consistent.
+ * Classify a synthetic checkout condition that has no HTTP response —
+ * a missing Clerk session/token (`unauthorized` / `session_expired`) or
+ * a Dodo `checkout.link_expired` overlay event. These still flow through
+ * the taxonomy so the toast copy and retryability stay consistent.
  */
 export function classifySyntheticCheckoutError(
-  kind: 'unauthorized' | 'session_expired',
+  kind: 'unauthorized' | 'session_expired' | 'link_expired',
 ): CheckoutError {
   return {
     code: kind,

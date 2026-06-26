@@ -42,6 +42,12 @@ describe('shouldSkipSentryForAction', () => {
     assert.equal(shouldSkipSentryForAction('missing-checkout-url'), false);
   });
 
+  it('does NOT skip Sentry for link-expired (overlay link-expiry — track volume)', () => {
+    // Emits at info level (INFO_LEVEL_CODES) so the abandoned-link funnel is
+    // observable without alerting. It must still be captured, never skipped.
+    assert.equal(shouldSkipSentryForAction('link-expired'), false);
+  });
+
   it('does NOT skip Sentry for exception (unhandled throw inside startCheckout)', () => {
     assert.equal(shouldSkipSentryForAction('exception'), false);
   });
@@ -88,7 +94,7 @@ describe('reportCheckoutError call sites in src/services/checkout.ts', () => {
     // this assertion forces an accompanying policy decision.
     assert.deepEqual(
       [...knownActions].sort(),
-      ['exception', 'http-error', 'missing-checkout-url', 'no-token', 'no-user'].sort(),
+      ['exception', 'http-error', 'link-expired', 'missing-checkout-url', 'no-token', 'no-user'].sort(),
     );
   });
 

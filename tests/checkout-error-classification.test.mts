@@ -150,6 +150,16 @@ describe('classifySyntheticCheckoutError', () => {
     assert.equal(err.retryable, true);
   });
 
+  it('maps link_expired to retryable link_expired code with retry-oriented copy', () => {
+    const err = classifySyntheticCheckoutError('link_expired');
+    assert.equal(err.code, 'link_expired');
+    assert.equal(err.retryable, true);
+    // Distinct from session_expired: the user is signed in — the payment
+    // LINK aged out, so the copy points to re-initiating checkout, not re-auth.
+    assert.equal(err.userMessage, 'Your payment link expired. Please start checkout again.');
+    assert.ok(!/sign in/i.test(err.userMessage), 'link_expired must not tell the user to sign in');
+  });
+
   it('does not include serverMessage for synthetic errors (no server involved)', () => {
     const err = classifySyntheticCheckoutError('unauthorized');
     assert.equal(err.serverMessage, undefined);

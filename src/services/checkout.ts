@@ -16,7 +16,7 @@ import type { CheckoutEvent } from 'dodopayments-checkout';
 import { openBillingPortal, prereserveBillingPortalTab } from './billing';
 import { getCurrentClerkUser, getClerkToken, openSignIn } from './clerk';
 import { subscribeAuthState } from './auth-state';
-import { saveCheckoutAttempt, clearCheckoutAttempt } from './checkout-attempt';
+import { saveCheckoutAttempt, loadCheckoutAttempt, clearCheckoutAttempt } from './checkout-attempt';
 import {
   classifyHttpCheckoutError,
   classifySyntheticCheckoutError,
@@ -409,6 +409,43 @@ async function ensureCheckoutOverlayInitialized(): Promise<void> {
           stopWatchdog();
           safeCloseOverlay();
           break;
+        case 'checkout.link_expired': {
+          // Dodo's SDK emits this when the checkout session / payment link
+          // expires mid-flow but does NOT self-close the iframe — leaving the
+          // customer stranded on a frozen "Processing… / Payment Link Expires
+          // in 00:00" overlay (the literal incident symptom). The `error`
+          // branch above never fires for this because the SDK models expiry as
+          // its own event, not an error. Tear the frozen iframe down, then
+          // surface an actionable "payment link expired — retry" toast through
+          // the same error taxonomy startCheckout failures use.
+          //
+          // We deliberately do NOT clear LAST_CHECKOUT_ATTEMPT_KEY: the saved
+          // attempt is the retry context (a re-initiated checkout / the
+          // failure-retry banner re-opens the exact product), mirroring
+          // checkout.closed's "preserve the attempt for retry" rule.
+          //
+          // safeCloseOverlay() re-emits checkout.closed synchronously through
+          // this same handler (stopWatchdog + clearPendingCheckoutIntent, both
+          // idempotent), so the error-surface calls below intentionally run
+          // AFTER it — do not reorder them above safeCloseOverlay().
+          stopWatchdog();
+          safeCloseOverlay();
+          // If the session already resolved to success, the iframe we just
+          // tore down was a stale post-success overlay (checkout.status=
+          // succeeded does not close it). Surfacing the expiry toast there
+          // would tell a paid user to "start checkout again" — a duplicate-
+          // payment nudge. Gate the user-facing surface on !successFired,
+          // mirroring checkout.closed / checkout.redirect_requested; the
+          // teardown above still runs so the overlay never stays frozen.
+          if (successFired) break;
+          const error = classifySyntheticCheckoutError('link_expired');
+          reportCheckoutError(error, {
+            productId: loadCheckoutAttempt()?.productId ?? 'unknown',
+            action: 'link-expired',
+          });
+          renderCheckoutErrorSurface(error, false);
+          break;
+        }
       }
     };
 
@@ -937,6 +974,9 @@ type SentryLevel = 'error' | 'info';
 const INFO_LEVEL_CODES: ReadonlySet<CheckoutErrorCode> = new Set([
   'unauthorized',
   'session_expired',
+  // Expected user state: an abandoned-then-reopened payment link aged out.
+  // Observable in Sentry (funnel drop-off) but should not trigger alerts.
+  'link_expired',
 ]);
 
 function reportCheckoutError(

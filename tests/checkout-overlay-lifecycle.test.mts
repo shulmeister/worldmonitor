@@ -13,6 +13,8 @@ interface HarnessState {
   fetchBodies: unknown[];
   closeCalls: number;
   silentNoOpOpens: number;
+  errorToasts: string[];
+  attemptClears: string[];
 }
 
 declare global {
@@ -91,6 +93,8 @@ function resetHarness(): void {
     fetchBodies: [],
     closeCalls: 0,
     silentNoOpOpens: 0,
+    errorToasts: [],
+    attemptClears: [],
   };
   installBrowserGlobals();
 }
@@ -160,7 +164,7 @@ const stubSources: Record<string, string> = {
   './checkout-attempt': `
     export const saveCheckoutAttempt = () => {};
     export const loadCheckoutAttempt = () => null;
-    export const clearCheckoutAttempt = () => {};
+    export const clearCheckoutAttempt = (reason) => globalThis.__checkoutOverlayHarness.attemptClears.push(reason);
   `,
   './checkout-errors': `
     export const classifyHttpCheckoutError = () => ({ code: 'service_unavailable', userMessage: 'unavailable', retryable: true });
@@ -170,7 +174,7 @@ const stubSources: Record<string, string> = {
     export const snapshotUpstreamResponse = () => ({});
   `,
   './checkout-error-toast': `
-    export const showCheckoutErrorToast = () => {};
+    export const showCheckoutErrorToast = (message) => globalThis.__checkoutOverlayHarness.errorToasts.push(message);
   `,
   './checkout-no-user-policy': `
     export const decideNoUserPathOutcome = () => ({ kind: 'inline-signin', persist: true });
@@ -417,6 +421,76 @@ describe('checkout overlay lifecycle', () => {
       globalThis.sessionStorage.getItem('wm-pending-checkout'),
       pending,
       'destroy must preserve the pending-checkout intent (handler nulled before close)',
+    );
+  });
+
+  it('closes the frozen overlay and surfaces a retry on checkout.link_expired', async () => {
+    resetHarness();
+    const checkout = await loadCheckoutModule();
+
+    // Open the overlay so the SDK is in the "iframe mounted" state. The real
+    // bug: Dodo emits checkout.link_expired but does NOT self-close the iframe,
+    // stranding the user on a frozen "Processing… / Expires in 00:00" overlay.
+    await checkout.openCheckout('https://checkout.example/session');
+
+    const harness = globalThis.__checkoutOverlayHarness;
+    // Reproduce the production state: checkout.opened arms the watchdog, and a
+    // pending auto-resume intent is saved. link_expired must stop the running
+    // watchdog (no zombie timer) and the re-entrant checkout.closed must clear
+    // the dead-link auto-resume intent while preserving the retry attempt.
+    harness.handlers[0]({ event_type: 'checkout.opened', data: {} });
+    assert.equal(harness.watchdogs.length, 1, 'checkout.opened must arm the watchdog');
+    globalThis.sessionStorage.setItem('wm-pending-checkout', JSON.stringify({ productId: 'prod_1' }));
+
+    harness.handlers[0]({ event_type: 'checkout.link_expired', data: {} });
+
+    // (a) the frozen iframe is torn down so the user is no longer stranded.
+    assert.equal(harness.closeCalls, 1, 'link_expired must close the frozen overlay');
+    // (b) an actionable retry surface is shown via the error taxonomy toast
+    //     (stub maps userMessage to the code, so the toast carries 'link_expired').
+    assert.deepEqual(
+      harness.errorToasts,
+      ['link_expired'],
+      'link_expired must surface a retry toast via the error taxonomy',
+    );
+    // (c) retry context is preserved — the attempt is NOT cleared as a terminal
+    //     state, so a re-initiated checkout still has the product to re-open.
+    assert.deepEqual(
+      harness.attemptClears,
+      [],
+      'link_expired must preserve the saved checkout attempt for retry',
+    );
+    // (d) the running watchdog is stopped — a leaked timer would keep polling
+    //     entitlement against a dead session.
+    assert.equal(harness.watchdogs[0].stopCalls, 1, 'link_expired must stop the running watchdog');
+    // (e) the re-entrant checkout.closed cleared the dead-link auto-resume intent.
+    assert.equal(
+      globalThis.sessionStorage.getItem('wm-pending-checkout'),
+      null,
+      'link_expired must clear the pending auto-resume intent for the expired link',
+    );
+  });
+
+  it('does not show an expiry toast when checkout.link_expired arrives after success', async () => {
+    resetHarness();
+    const checkout = await loadCheckoutModule();
+
+    await checkout.openCheckout('https://checkout.example/session');
+
+    const harness = globalThis.__checkoutOverlayHarness;
+    harness.handlers[0]({ event_type: 'checkout.opened', data: {} });
+    // The payment succeeds; checkout.status=succeeded does NOT close the iframe,
+    // so a late link_expired can still arrive while the success overlay is up.
+    harness.handlers[0]({ event_type: 'checkout.status', data: { message: { status: 'succeeded' } } });
+    harness.handlers[0]({ event_type: 'checkout.link_expired', data: {} });
+
+    // The frozen iframe is still torn down...
+    assert.equal(harness.closeCalls, 1, 'post-success link_expired must still close the overlay');
+    // ...but a paid user is NOT told to "start checkout again" (duplicate-payment nudge).
+    assert.deepEqual(
+      harness.errorToasts,
+      [],
+      'link_expired after success must not surface an expiry retry toast',
     );
   });
 });
