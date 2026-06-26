@@ -36,6 +36,7 @@ import {
   acquireLockSafely,
   releaseLock,
   getRedisCredentials,
+  readCanonicalValue,
 } from './_seed-utils.mjs';
 import { unwrapEnvelope } from './_seed-envelope-source.mjs';
 
@@ -62,6 +63,24 @@ const FAA_TTL       = 7_200;  // 2h
 const NOTAM_TTL     = 7_200;  // 2h
 const NEWS_TTL      = 2_400;  // 40min
 const BOOTSTRAP_TTL = 7_200;  // 2h — matches FAA/NOTAM; survives ~4 missed cron ticks
+
+// AviationStack quota guard. AviationStack is a PAID, per-airport API: one call
+// per airport (~55 today) on EVERY cron tick, with no upstream batching. Intl
+// airport-delay data moves slowly (already cached 30min client-side, 3h Redis
+// TTL), so re-buying all 55 airports on a 10–30min cron burns quota for data we
+// already hold. When the last successful intl publish is younger than this, we
+// SKIP the fetch entirely and just extend the last-good TTLs — turning the cron
+// cadence into an effective floor of INTL_MIN_REFRESH_MIN between paid fetches.
+//
+// Keep below runSeed's maxStaleMin (90) minus one cron interval so seed-meta
+// fetchedAt never ages into a false STALE_SEED: 55min default leaves headroom
+// even on a 30min cron (worst-case fetchedAt age ≈ 55+30 = 85 < 90). Set to 0
+// to disable the gate (fetch every tick, legacy behaviour). Override via
+// AVIATIONSTACK_MIN_REFRESH_MIN.
+const INTL_MIN_REFRESH_MIN = (() => {
+  const raw = Number(process.env.AVIATIONSTACK_MIN_REFRESH_MIN ?? 55);
+  return Number.isFinite(raw) && raw >= 0 ? raw : 55;
+})();
 
 // health.js expects these exact meta keys (api/health.js:222,223,269)
 const INTL_META_KEY  = 'seed-meta:aviation:intl';
@@ -1110,6 +1129,28 @@ async function runNewsSideCar() {
 // last-good snapshot. FAA/NOTAM/news already ran via their side-cars and are
 // independent — an intl outage does NOT freeze their freshness.
 
+// Quota guard: returns true when the last successful intl publish is younger
+// than INTL_MIN_REFRESH_MIN, meaning we can serve last-good and skip the paid
+// AviationStack fetch this tick. Reads seed-meta:aviation:intl, whose fetchedAt
+// runSeed refreshes ONLY on a successful publish — the graceful-failure path
+// leaves it stale, so a real upstream outage still retries every tick rather
+// than being suppressed by the gate. Fail-open: any read error / missing meta /
+// non-numeric fetchedAt → false (fetch), so we never trade freshness for a
+// flaky Redis read.
+async function intlIsFresh() {
+  if (INTL_MIN_REFRESH_MIN <= 0) return false;
+  try {
+    const meta = await readCanonicalValue(INTL_META_KEY);
+    const fetchedAt = meta?.fetchedAt;
+    if (typeof fetchedAt !== 'number' || !Number.isFinite(fetchedAt)) return false;
+    const ageMin = (Date.now() - fetchedAt) / 60_000;
+    if (ageMin < 0) return false; // clock skew — treat as stale, fetch
+    return ageMin < INTL_MIN_REFRESH_MIN;
+  } catch {
+    return false;
+  }
+}
+
 async function fetchIntl() {
   const result = await seedIntlDelays();
   if (!result.healthy || result.skipped) {
@@ -1167,6 +1208,20 @@ async function main() {
   // Uses last-good intl from Redis; afterPublishIntl will overwrite with fresh
   // intl on success.
   await writeDelaysBootstrap();
+
+  // Quota guard — skip the paid AviationStack fetch when last-good intl is still
+  // fresh. Just extend the TTLs on the canonical key + its freshness meta so
+  // consumers and /api/health keep serving last-good, then exit clean. The
+  // FAA/NOTAM/news side-cars (free) and the bootstrap write above already ran,
+  // so the page-load aggregate is still refreshed this tick.
+  if (await intlIsFresh()) {
+    await extendExistingTtl([INTL_KEY, INTL_META_KEY], INTL_TTL);
+    console.log(
+      `[Intl] SKIPPED AviationStack fetch — last publish < ${INTL_MIN_REFRESH_MIN}min old; ` +
+      `saved ${AVIATIONSTACK_LIST.length} API call(s), extended TTLs on last-good.`,
+    );
+    process.exit(0);
+  }
 
   return runSeed('aviation', 'intl', INTL_KEY, fetchIntl, {
     validateFn: validate,
