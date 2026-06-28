@@ -25,12 +25,15 @@ afterEach(() => {
   process.env.WM_SESSION_SECRET = 'test-secret-must-be-at-least-32-chars-long-xxx';
 });
 
-function createHandler() {
+function createHandler(options: { handlerCdnCacheHeader?: string } = {}) {
   return createDomainGateway([
     {
       method: 'GET',
       path: '/api/market/v1/list-market-quotes',
-      handler: async () => new Response(JSON.stringify({ ok: true }), { status: 200 }),
+      handler: async () => new Response(JSON.stringify({ ok: true }), {
+        status: 200,
+        headers: options.handlerCdnCacheHeader ? { 'CDN-Cache-Control': options.handlerCdnCacheHeader } : undefined,
+      }),
     },
     {
       method: 'GET',
@@ -118,6 +121,18 @@ describe('gateway CDN origin policy', () => {
     assert.equal(res.headers.get('Access-Control-Allow-Origin'), origin);
     assert.equal(res.headers.get('Vary'), 'Origin');
     assert.match(res.headers.get('CDN-Cache-Control') ?? '', /s-maxage=/);
+  });
+
+  it('strips handler-supplied shared CDN headers on credential-bearing GETs', async () => {
+    const handler = createHandler({
+      handlerCdnCacheHeader: 'public, s-maxage=9999, stale-while-revalidate=9999',
+    });
+    const res = await handler(new Request('https://worldmonitor.app/api/market/v1/list-market-quotes?symbols=AAPL', {
+      headers: { Origin: 'https://worldmonitor.app', 'X-WorldMonitor-Key': sessionToken },
+    }));
+
+    assert.equal(res.status, 200);
+    assertNoSharedCacheHeaders(res);
   });
 
   it('still blocks disallowed origins before route handling', async () => {

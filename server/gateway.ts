@@ -12,7 +12,7 @@
 import { createRouter, type RouteDescriptor } from './router';
 import { getCorsHeaders, isDisallowedOrigin, isAllowedOrigin } from './cors';
 // @ts-expect-error — JS module, no declaration file
-import { validateApiKey } from '../api/_api-key.js';
+import { USER_API_KEY_GATEWAY_VALIDATION_ERROR, validateApiKey } from '../api/_api-key.js';
 // @ts-expect-error — JS module, no declaration file
 import { captureSilentError } from '../api/_sentry-edge.js';
 import { mapErrorToResponse } from './error-mapper';
@@ -377,7 +377,6 @@ export type GatewayCtx = { waitUntil: (p: Promise<unknown>) => void };
 
 const POST_TO_GET_MAX_BODY_BYTES = 1_048_576;
 const POST_TO_GET_MAX_ARRAY_VALUES_PER_KEY = 200;
-const USER_API_KEY_GATEWAY_VALIDATION_ERROR = 'User API key requires gateway validation';
 
 function isPostToGetCompatibleBodySize(headers: Headers): boolean {
   const rawContentLength = headers.get('Content-Length');
@@ -1205,6 +1204,8 @@ export function createDomainGateway(
         // bypassing auth entirely.
         const reqOrigin = request.headers.get('origin') || '';
         const cdnCache = !isPremium && !hasCredentialedNonPublicGet && isAllowedOrigin(reqOrigin) ? TIER_CDN_CACHE[tier] : null;
+        mergedHeaders.delete('CDN-Cache-Control');
+        mergedHeaders.delete('Vercel-CDN-Cache-Control');
         if (cdnCache) mergedHeaders.set('CDN-Cache-Control', cdnCache);
         mergedHeaders.set('X-Cache-Tier', tier);
 
