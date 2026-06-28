@@ -239,6 +239,17 @@ test('session-authenticated bootstrap returns data without shared cache headers'
   });
 });
 
+test('session-authenticated weather-only bootstrap is not shared-cacheable', async () => {
+  await withMockedBootstrapAuth({ entitlement: activeApiEntitlement() }, async () => {
+    const { token } = await issueSessionToken();
+    const resp = await handler(makeWeatherBootstrapRequest({ Cookie: `wm-session=${token}` }));
+
+    assert.equal(resp.status, 200);
+    assert.deepEqual(Object.keys(await resp.json()).sort(), ['data', 'missing']);
+    assertNonSharedCacheHeaders(resp);
+  });
+});
+
 test('weather-only bootstrap with malformed wm_ header is rejected instead of anonymous bypass', async () => {
   await withMockedBootstrapAuth({ entitlement: activeApiEntitlement() }, async (calls) => {
     const resp = await handler(makeWeatherBootstrapRequest({ 'X-WorldMonitor-Key': 'wm_notcanonical' }));

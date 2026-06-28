@@ -227,6 +227,19 @@ export function isPublicWeatherBootstrapRequest(req) {
   return requested.length === 1 && requested[0] === 'weatherAlerts';
 }
 
+const BOOTSTRAP_CREDENTIAL_COOKIES = new Set(['wm-session', 'wm-pro-key', 'wm-widget-key']);
+
+function hasBootstrapCredentialCookie(req) {
+  const raw = req.headers.get('Cookie') || req.headers.get('cookie') || '';
+  if (!raw) return false;
+
+  for (const part of raw.split(';')) {
+    const name = part.trim().split('=', 1)[0];
+    if (BOOTSTRAP_CREDENTIAL_COOKIES.has(name)) return true;
+  }
+  return false;
+}
+
 const NEG_SENTINEL = '__WM_NEG__';
 
 async function getCachedJsonBatch(keys) {
@@ -268,7 +281,7 @@ function authFailure(body, status, cors, extraHeaders = {}) {
 
 async function validateBootstrapAuth(req, cors) {
   const headerKey = getHeaderApiKey(req);
-  if (!headerKey && isPublicWeatherBootstrapRequest(req)) {
+  if (!headerKey && !hasBootstrapCredentialCookie(req) && isPublicWeatherBootstrapRequest(req)) {
     return { ok: true, kind: 'public-weather' };
   }
 
