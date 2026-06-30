@@ -209,6 +209,11 @@ export class MapComponent {
   // Mobile loads the lighter 110m country topology (U6); passed in from MapContainer.
   private readonly isMobile: boolean;
   private mobileLabelVisibilityArmed = true;
+  // All container/document interaction listeners are registered with this signal so
+  // destroy() can remove them in one shot. The container node is reused across
+  // renderer switches (MapContainer keeps one element and rebuilds MapComponent on it),
+  // so listeners left attached would retain every destroyed instance forever.
+  private readonly listenerAbort = new AbortController();
 
   constructor(container: HTMLElement, initialState: MapState, options: MapComponentOptions = {}) {
     this.container = container;
@@ -333,6 +338,7 @@ export class MapComponent {
 
   public destroy(): void {
     this.destroyed = true;
+    this.listenerAbort.abort();
     window.removeEventListener('theme-changed', this.handleThemeChange);
     document.removeEventListener('visibilitychange', this.boundVisibilityHandler);
     if (this.resizeObserver) {
@@ -840,6 +846,7 @@ export class MapComponent {
   }
 
   private setupZoomHandlers(): void {
+    const signal = this.listenerAbort.signal;
     let isDragging = false;
     let lastPos = { x: 0, y: 0 };
     let lastTouchDist = 0;
@@ -855,10 +862,14 @@ export class MapComponent {
     };
 
     // Resume mobile label-overlap measurement on the first direct map interaction.
-    this.container.addEventListener('pointerdown', (e) => {
-      if (shouldIgnoreInteractionStart(e.target)) return;
-      this.resumeMobileLabelVisibility();
-    });
+    // Mobile-only: on desktop the flag is always armed, so this would only ever
+    // early-return inside resumeMobileLabelVisibility().
+    if (this.isMobile) {
+      this.container.addEventListener('pointerdown', (e) => {
+        if (shouldIgnoreInteractionStart(e.target)) return;
+        this.resumeMobileLabelVisibility();
+      }, { signal });
+    }
 
     // Wheel zoom with smooth delta
     this.container.addEventListener(
@@ -886,7 +897,7 @@ export class MapComponent {
         }
         this.applyTransform();
       },
-      { passive: false }
+      { passive: false, signal }
     );
 
     // Mouse drag for panning
@@ -898,7 +909,7 @@ export class MapComponent {
         startCountryClickGesture(countryClickGesture, { x: e.clientX, y: e.clientY });
         this.container.style.cursor = 'grabbing';
       }
-    });
+    }, { signal });
 
     document.addEventListener('mousemove', (e) => {
       if (!isDragging) return;
@@ -913,7 +924,7 @@ export class MapComponent {
 
       lastPos = { x: e.clientX, y: e.clientY };
       this.applyTransform();
-    });
+    }, { signal });
 
     document.addEventListener('mouseup', () => {
       if (isDragging) {
@@ -921,7 +932,7 @@ export class MapComponent {
         finishCountryClickGesture(countryClickGesture);
         this.container.style.cursor = 'grab';
       }
-    });
+    }, { signal });
 
     let touchStartPos = { x: 0, y: 0 };
     let touchDragActive = false;
@@ -956,7 +967,7 @@ export class MapComponent {
         touchHistory.length = 0;
         touchHistory.push({ x: touch1.clientX, y: touch1.clientY, t: performance.now() });
       }
-    }, { passive: false });
+    }, { passive: false, signal });
 
     this.container.addEventListener('touchmove', (e) => {
       const touch1 = e.touches[0];
@@ -1007,7 +1018,7 @@ export class MapComponent {
 
         this.applyTransform();
       }
-    }, { passive: false });
+    }, { passive: false, signal });
 
     this.container.addEventListener('touchend', () => {
       if (touchDragActive && touchHistory.length >= 2) {
@@ -1036,7 +1047,7 @@ export class MapComponent {
       touchDragActive = false;
       lastTouchDist = 0;
       touchHistory.length = 0;
-    });
+    }, { signal });
 
     this.container.addEventListener('click', (e) => {
       if (!this.onCountryClick) return;
@@ -1061,7 +1072,7 @@ export class MapComponent {
       if (hit) {
         this.onCountryClick({ lat, lon, code: hit.code, name: hit.name });
       }
-    });
+    }, { signal });
 
     this.container.style.cursor = 'grab';
   }
@@ -3669,11 +3680,15 @@ export class MapComponent {
   public zoomIn(): void {
     this.state.zoom = Math.min(this.state.zoom + 0.5, 10);
     this.applyTransform();
+    // The on-screen +/- controls are excluded by shouldIgnoreInteractionStart, so a
+    // mobile user zooming only via buttons would never arm label thinning otherwise.
+    this.resumeMobileLabelVisibility();
   }
 
   public zoomOut(): void {
     this.state.zoom = Math.max(this.state.zoom - 0.5, 1);
     this.applyTransform();
+    this.resumeMobileLabelVisibility();
   }
 
   public reset(): void {
@@ -3685,6 +3700,7 @@ export class MapComponent {
     } else {
       this.applyTransform();
     }
+    this.resumeMobileLabelVisibility();
   }
 
   public triggerHotspotClick(id: string): void {

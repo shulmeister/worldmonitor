@@ -83,7 +83,7 @@ describe('mobile SVG map feature caps and label reflow skip (#4463 / U7)', () =>
   it('resumes mobile label measurement once from valid pointer or touch starts', () => {
     assert.match(
       mapSrc,
-      /addEventListener\('pointerdown', \(e\) => \{\s*if \(shouldIgnoreInteractionStart\(e\.target\)\) return;\s*this\.resumeMobileLabelVisibility\(\);\s*\}\)/,
+      /addEventListener\('pointerdown', \(e\) => \{\s*if \(shouldIgnoreInteractionStart\(e\.target\)\) return;\s*this\.resumeMobileLabelVisibility\(\);\s*\}, \{ signal \}\)/,
       'pointerdown should resume label visibility only for direct map interactions',
     );
     assert.match(
