@@ -8,20 +8,34 @@ import { CURRENT_PREFS_SCHEMA_VERSION, MAX_PREFS_BLOB_SIZE } from "./constants";
  * duplicate rows. `.unique()` then THROWS on every subsequent read/write for
  * that identity — surfacing as a Convex `InternalServerError` the edge
  * misclassifies as transient, so the client retries forever and never saves
- * (#4567). Read tolerantly instead: the highest-`syncVersion` row (tie:
- * highest `updatedAt`) is canonical; `setPreferences` also deletes the stale
- * duplicates in its (transactional) mutation to self-heal.
+ * (#4567). Read tolerantly instead: the highest-`syncVersion` row (ties:
+ * highest `updatedAt`, then newest row) is canonical; `setPreferences` also
+ * deletes the stale duplicates in its (transactional) mutation to self-heal.
  */
-function pickCanonicalPrefRow<T extends { syncVersion: number; updatedAt: number }>(
-  rows: T[],
-): T | null {
+type PrefRowOrder = {
+  _creationTime: number;
+  _id: string;
+  syncVersion: number;
+  updatedAt: number;
+};
+
+function isNewerPrefRow<T extends PrefRowOrder>(candidate: T, current: T): boolean {
+  if (candidate.syncVersion !== current.syncVersion) {
+    return candidate.syncVersion > current.syncVersion;
+  }
+  if (candidate.updatedAt !== current.updatedAt) {
+    return candidate.updatedAt > current.updatedAt;
+  }
+  if (candidate._creationTime !== current._creationTime) {
+    return candidate._creationTime > current._creationTime;
+  }
+  return String(candidate._id) > String(current._id);
+}
+
+function pickCanonicalPrefRow<T extends PrefRowOrder>(rows: T[]): T | null {
   let best: T | null = null;
   for (const r of rows) {
-    if (
-      !best ||
-      r.syncVersion > best.syncVersion ||
-      (r.syncVersion === best.syncVersion && r.updatedAt > best.updatedAt)
-    ) {
+    if (!best || isNewerPrefRow(r, best)) {
       best = r;
     }
   }
