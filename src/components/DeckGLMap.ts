@@ -795,15 +795,13 @@ export class DeckGLMap {
     this.debouncedRebuildLayers = debounce(() => {
       if (this.renderPaused || this.webglLost || !this.maplibreMap) return;
       this.maplibreMap.resize();
-      try { this.deckOverlay?.setProps({ layers: this.buildLayers() }); } catch { /* map mid-teardown */ }
-      this.maplibreMap.triggerRepaint();
+      this.updateLayers();
     }, 150);
     this.debouncedFetchBases = debounce(() => this.fetchServerBases(), 300);
     this.debouncedFetchAircraft = debounce(() => this.fetchViewportAircraft(), 500);
     this.rafUpdateLayers = rafSchedule(() => {
       if (this.renderPaused || this.webglLost || !this.maplibreMap) return;
-      try { this.deckOverlay?.setProps({ layers: this.buildLayers() }); } catch { /* map mid-teardown */ }
-      this.maplibreMap?.triggerRepaint();
+      this.updateLayers();
     });
 
     this.setupDOM();
@@ -1153,7 +1151,7 @@ export class DeckGLMap {
 
     this.deckOverlay = new MapboxOverlay({
       interleaved: true,
-      layers: this.buildLayers(),
+      layers: this.buildLayers(true),
       getTooltip: (info: PickingInfo) => this.getTooltip(info),
       onClick: (info: PickingInfo) => this.handleClick(info),
       pickingRadius: 10,
@@ -1166,7 +1164,7 @@ export class DeckGLMap {
         if (error.message.includes('satellite-imagery-layer')) {
           this.satelliteImageryLayerFailed = true;
           console.warn('[DeckGLMap] Satellite imagery layer failed (likely Intel GPU driver incompatibility) — rebuilding layer stack without it');
-          try { this.deckOverlay?.setProps({ layers: this.buildLayers() }); } catch { /* map mid-teardown */ }
+          this.updateLayers();
         }
       },
     });
@@ -2661,12 +2659,12 @@ export class DeckGLMap {
    * Unchanged data short-circuits in the gate (no extra frame).
    */
   private resolveHeavyData<T>(key: string, compute: () => T, deferHeavy: boolean, empty: T): T {
-    const real = compute();
     if (deferHeavy) {
+      const real = compute();
       this.heavyGate.stage(key, real);
       return (this.heavyGate.present(key) as T | undefined) ?? empty;
     }
-    return (this.heavyGate.present(key) as T | undefined) ?? real;
+    return (this.heavyGate.present(key) as T | undefined) ?? compute();
   }
 
   private createConflictZonesLayer(data: GeoJSON.FeatureCollection): GeoJsonLayer {
@@ -7562,6 +7560,7 @@ export class DeckGLMap {
     this.debouncedFetchBases.cancel();
     this.debouncedFetchAircraft.cancel();
     this.rafUpdateLayers.cancel();
+    this.heavyGate.cancel();
 
     if (this.renderRafId !== null) {
       cancelAnimationFrame(this.renderRafId);
