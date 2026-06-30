@@ -19,7 +19,7 @@
   "protoDomainFolders": 35,
   "openapiServiceSpecs": 34,
   "serverDomains": 34,
-  "locales": 24,
+  "locales": 25,
   "workflows": [
     "build-desktop.yml",
     "contributor-trust.yml",
