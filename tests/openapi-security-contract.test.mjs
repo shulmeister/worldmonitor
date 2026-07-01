@@ -101,9 +101,16 @@ describe('OpenAPI security contract', () => {
   it('bundle (worldmonitor.openapi.yaml) carries global security + schemes', () => {
     const bundle = loadYaml(readFileSync(resolve(apiDir, 'worldmonitor.openapi.yaml'), 'utf8'));
     assert.ok(Array.isArray(bundle.security) && bundle.security.length === 3, 'bundle root security missing');
-    const schemes = bundle.components?.securitySchemes ?? {};
+    const securityNames = bundle.security.map((r) => Object.keys(r)[0]);
     for (const scheme of Object.keys(EXPECTED_SCHEMES)) {
-      assert.ok(schemes[scheme], `bundle: securityScheme ${scheme} missing`);
+      assert.ok(securityNames.includes(scheme), `bundle: root security missing ${scheme}`);
+    }
+    const schemes = bundle.components?.securitySchemes ?? {};
+    for (const [name, expected] of Object.entries(EXPECTED_SCHEMES)) {
+      assert.ok(schemes[name], `bundle: securityScheme ${name} missing`);
+      for (const [k, v] of Object.entries(expected)) {
+        assert.equal(schemes[name][k], v, `bundle: ${name}.${k} should be ${v}`);
+      }
     }
   });
 });

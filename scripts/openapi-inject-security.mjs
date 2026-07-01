@@ -209,34 +209,75 @@ function bundleSecuritySchemesBlock() {
   return L.join('\n');
 }
 
-function injectBundle(text) {
-  const hasSecurity = /^security:$/m.test(text);
-  const hasSchemes = /^    securitySchemes:$/m.test(text);
-  if (hasSecurity && hasSchemes) return { text, changed: false };
+function findTopLevelBlock(lines, key) {
+  const start = lines.indexOf(key + ':');
+  if (start === -1) return null;
+  let end = start + 1;
+  while (end < lines.length) {
+    const line = lines[end];
+    if (line && !line.startsWith(' ') && !line.startsWith('\t')) break;
+    end++;
+  }
+  return { start, end, text: lines.slice(start, end).join('\n') };
+}
 
-  const lines = text.split('\n');
-  const out = [];
-  let insertedSchemes = hasSchemes;
-  let insertedSecurity = hasSecurity;
-
-  for (let i = 0; i < lines.length; i++) {
+function findComponentsChildBlock(lines, key) {
+  const componentsIndex = lines.indexOf('components:');
+  if (componentsIndex === -1) {
+    return { componentsIndex, block: null };
+  }
+  for (let i = componentsIndex + 1; i < lines.length; i++) {
     const line = lines[i];
+    if (line && !line.startsWith(' ') && !line.startsWith('\t')) break;
+    if (line !== `    ${key}:`) continue;
+    let end = i + 1;
+    while (end < lines.length) {
+      const next = lines[end];
+      if (next && !next.startsWith(' ') && !next.startsWith('\t')) break;
+      if (/^ {4}[^ ].*:/.test(next)) break;
+      end++;
+    }
+    return { componentsIndex, block: { start: i, end, text: lines.slice(i, end).join('\n') } };
+  }
+  return { componentsIndex, block: null };
+}
+
+function injectBundle(text) {
+  const lines = text.split('\n');
+  let changed = false;
+
+  const expectedSecurity = bundleSecurityBlock();
+  const securityBlock = findTopLevelBlock(lines, 'security');
+  if (securityBlock) {
+    if (securityBlock.text !== expectedSecurity) {
+      lines.splice(securityBlock.start, securityBlock.end - securityBlock.start, ...expectedSecurity.split('\n'));
+      changed = true;
+    }
+  } else {
     // Insert root `security:` immediately before top-level `paths:`.
-    if (!insertedSecurity && line === 'paths:') {
-      out.push(bundleSecurityBlock());
-      insertedSecurity = true;
-    }
-    out.push(line);
-    // Insert `securitySchemes:` as the first child under top-level `components:`.
-    if (!insertedSchemes && line === 'components:') {
-      out.push(bundleSecuritySchemesBlock());
-      insertedSchemes = true;
-    }
+    const pathsIndex = lines.indexOf('paths:');
+    if (pathsIndex === -1) throw new Error('bundle: could not find top-level `paths:` anchor for security block');
+    lines.splice(pathsIndex, 0, ...expectedSecurity.split('\n'));
+    changed = true;
   }
 
-  if (!insertedSecurity) throw new Error('bundle: could not find top-level `paths:` anchor for security block');
-  if (!insertedSchemes) throw new Error('bundle: could not find top-level `components:` anchor for securitySchemes block');
-  return { text: out.join('\n'), changed: true };
+  const expectedSchemes = bundleSecuritySchemesBlock();
+  const { componentsIndex, block: schemesBlock } = findComponentsChildBlock(lines, 'securitySchemes');
+  if (componentsIndex === -1) {
+    throw new Error('bundle: could not find top-level `components:` anchor for securitySchemes block');
+  }
+  if (schemesBlock) {
+    if (schemesBlock.text !== expectedSchemes) {
+      lines.splice(schemesBlock.start, schemesBlock.end - schemesBlock.start, ...expectedSchemes.split('\n'));
+      changed = true;
+    }
+  } else {
+    // Insert `securitySchemes:` as the first child under top-level `components:`.
+    lines.splice(componentsIndex + 1, 0, ...expectedSchemes.split('\n'));
+    changed = true;
+  }
+
+  return { text: lines.join('\n'), changed };
 }
 
 // ── Run ──────────────────────────────────────────────────────────────────────
