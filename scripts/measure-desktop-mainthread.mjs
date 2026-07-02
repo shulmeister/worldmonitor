@@ -184,10 +184,11 @@ async function measure(url, { cpu = 1, settle = 15000 } = {}) {
       }
     });
     // Category-filtered tracing keeps the payload reviewable while retaining the
-    // devtools.timeline events decomposeTraceEvents classifies.
+    // devtools.timeline events decomposeTraceEvents classifies. Default
+    // transferMode (ReportEvents) delivers events via Tracing.dataCollected —
+    // must NOT be ReturnAsStream, which delivers via an IO stream handle instead.
     await client.send('Tracing.start', {
       traceConfig: { includedCategories: ['devtools.timeline', 'disabled-by-default-devtools.timeline', '__metadata'] },
-      transferMode: 'ReturnAsStream',
     });
     await page.goto(url, { waitUntil: 'load', timeout: 60000 });
     await page.waitForTimeout(settle);
