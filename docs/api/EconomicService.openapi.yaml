@@ -441,10 +441,13 @@ paths:
             parameters:
                 - name: series_id
                   in: query
-                  description: BLS series ID (e.g. "CES0500000001", "CIU1010000000000A").
+                  description: 'BLS/FRED-backed series ID. Supported values: "USPRIV", "ECIALLCIV".'
                   required: false
                   schema:
                     type: string
+                    enum:
+                        - 'USPRIV'
+                        - 'ECIALLCIV'
                 - name: limit
                   in: query
                   description: Maximum number of observations to return. Defaults to 60.
@@ -1658,7 +1661,7 @@ components:
             properties:
                 seriesId:
                     type: string
-                    description: BLS series ID (e.g. "CES0500000001", "CIU1010000000000A").
+                    description: 'BLS/FRED-backed series ID. Supported values: "USPRIV", "ECIALLCIV".'
                 limit:
                     type: integer
                     format: int32

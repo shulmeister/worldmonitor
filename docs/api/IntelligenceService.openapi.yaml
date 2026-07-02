@@ -134,6 +134,7 @@ paths:
                   required: true
                   schema:
                     type: string
+                    pattern: '^[A-Z]{2}$'
             responses:
                 "200":
                     description: Successful response
@@ -167,6 +168,7 @@ paths:
                   required: true
                   schema:
                     type: string
+                    pattern: '^[A-Z]{2}$'
                 - name: framework
                   in: query
                   description: Optional analytical framework instructions to append to system prompt. Max 2000 chars enforced at handler level.
@@ -369,6 +371,8 @@ paths:
                   required: false
                   schema:
                     type: string
+                    enum:
+                        - 'MODE_HISTORY'
             responses:
                 "200":
                     description: Successful response
@@ -521,6 +525,7 @@ paths:
                   required: true
                   schema:
                     type: string
+                    pattern: '^[A-Z]{2}$'
             responses:
                 "200":
                     description: Successful response
@@ -733,6 +738,11 @@ paths:
                   required: false
                   schema:
                     type: string
+                    enum:
+                        - 'hormuz_strait'
+                        - 'malacca_strait'
+                        - 'suez'
+                        - 'bab_el_mandeb'
                 - name: disruption_pct
                   in: query
                   required: false
@@ -744,6 +754,10 @@ paths:
                   required: false
                   schema:
                     type: string
+                    enum:
+                        - 'oil'
+                        - 'gas'
+                        - 'both'
             responses:
                 "200":
                     description: Successful response
@@ -815,6 +829,7 @@ paths:
                   required: true
                   schema:
                     type: string
+                    pattern: '^[a-z][a-z0-9]*(-[a-z0-9]+)*$'
             responses:
                 "200":
                     description: Successful response
@@ -854,6 +869,7 @@ paths:
                   required: true
                   schema:
                     type: string
+                    pattern: '^[a-z][a-z0-9]*(-[a-z0-9]+)*$'
                 - name: limit
                   in: query
                   description: |-
@@ -898,6 +914,7 @@ paths:
                   required: true
                   schema:
                     type: string
+                    pattern: '^[a-z][a-z0-9]*(-[a-z0-9]+)*$'
             responses:
                 "200":
                     description: Successful response

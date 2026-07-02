@@ -116,6 +116,7 @@ generate: clean ## Generate code from proto definitions
 	@# auth/security (#4599 root cause #1) and query parameter requiredness
 	@# (#4599 root cause #3 / #4604). Apply byte-/format-preserving injectors.
 	@node scripts/openapi-inject-security.mjs
+	@node scripts/apply-openapi-filter-param-schemas.mjs
 	@node scripts/openapi-inject-required.mjs
 	@echo "Code generation complete!"
 
