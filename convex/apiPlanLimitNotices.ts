@@ -1,5 +1,6 @@
 import { ConvexError, v } from "convex/values";
 import { internalMutation, internalQuery, mutation, query } from "./_generated/server";
+import { internal } from "./_generated/api";
 import { requireUserId } from "./lib/auth";
 
 export const API_PLAN_LIMIT_DIMENSIONS = [
@@ -585,9 +586,26 @@ export const pruneApiPlanLimitData = internalMutation({
       await ctx.db.delete(rollup._id);
     }
 
+    // Self-drain: a full batch on either table means more aged rows remain past
+    // the cutoff. Reschedule immediately (carrying the SAME resolved `now` so
+    // the cutoff stays fixed across the chain) until both tables drain below the
+    // batch size. Without this, one daily run deletes at most `batch` rows per
+    // table, so a backlog larger than `batch` (e.g. a mass-supersede event, or
+    // the first prune 90 days after launch) would take many days to clear and
+    // the tables could stay above their intended bound between runs.
+    const rescheduled = staleNotices.length >= batch || staleRollups.length >= batch;
+    if (rescheduled) {
+      await ctx.scheduler.runAfter(0, internal.apiPlanLimitNotices.pruneApiPlanLimitData, {
+        now,
+        retentionMs: args.retentionMs,
+        limit: batch,
+      });
+    }
+
     return {
       noticesDeleted: staleNotices.length,
       rollupsDeleted: staleRollups.length,
+      rescheduled,
     };
   },
 });
