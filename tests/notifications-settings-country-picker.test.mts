@@ -596,3 +596,67 @@ describe('mountCountryChipPicker', () => {
     assert.equal(emitted, false);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Regression — selected-chip removal affordance (visible ✕ + selected-state CSS)
+//
+// Field report: a Pro user could not remove default country chips — "chips do
+// not show an X and clicking them does not remove them." Root cause was purely
+// presentational: the toggle worked (see tests above), but the `-on` state had
+// NO CSS (a selected chip looked identical to an unselected one, so toggling
+// off appeared to do nothing) and there was no ✕ affordance. Guard both so the
+// widget can never regress back to an invisible selected state.
+// ---------------------------------------------------------------------------
+
+describe('country picker — removal affordance (regression)', () => {
+  it('selected chips render a ✕ remove glyph; unselected chips do not', () => {
+    const selected = makeFakeElement() as unknown as HTMLElement;
+    mountCountryChipPicker(selected, { initial: ['US'] });
+    assert.match(
+      selected.innerHTML,
+      /data-code="US"[\s\S]*?us-notif-country-chip-x/,
+      'a selected chip must render the ✕ remove affordance',
+    );
+
+    const empty = makeFakeElement() as unknown as HTMLElement;
+    mountCountryChipPicker(empty, { initial: [] });
+    assert.doesNotMatch(
+      empty.innerHTML,
+      /us-notif-country-chip-x/,
+      'no ✕ affordance should render when nothing is selected',
+    );
+  });
+
+  it('custom (non-common) selected codes also render the ✕ remove glyph', () => {
+    // RO is not in COMMON_COUNTRIES — it renders as an "extra" chip.
+    const root = makeFakeElement() as unknown as HTMLElement;
+    mountCountryChipPicker(root, { initial: ['RO'] });
+    assert.match(
+      root.innerHTML,
+      /data-code="RO"[\s\S]*?us-notif-country-chip-x/,
+      'a custom selected chip must render the ✕ remove affordance',
+    );
+  });
+
+  it('main.css defines a visible selected (-on) state — the missing rule that caused the bug', () => {
+    const css = readFileSync(
+      resolve(__dirname, '..', 'src', 'styles', 'main.css'),
+      'utf-8',
+    );
+    assert.match(
+      css,
+      /\.us-notif-country-chip\s*\{/,
+      'main.css must define a base .us-notif-country-chip rule',
+    );
+    assert.match(
+      css,
+      /\.us-notif-country-chip-on\s*\{/,
+      'main.css must define a distinct .us-notif-country-chip-on selected state',
+    );
+    assert.match(
+      css,
+      /\.us-notif-country-chip-x\s*\{/,
+      'main.css must style the ✕ remove glyph',
+    );
+  });
+});
