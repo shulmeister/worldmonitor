@@ -532,6 +532,23 @@ function yamlBlockNote(existingText, requiredTier) {
     : entitlementNote(requiredTier);
 }
 
+// A single-line description may be emitted as a quoted scalar (the generator
+// single- or double-quotes any value containing `: `, a leading indicator
+// char, etc.). Append the note INSIDE the quotes so the result stays one valid
+// scalar rather than a closing quote followed by bare text (which is a YAML
+// parse error). The note text is pure ASCII with no quote/backslash chars, so
+// the already-escaped inner content needs no re-escaping. Returns the scalar
+// unchanged when appendFn is a no-op, preserving idempotency.
+function appendNoteToYamlScalar(scalar, appendFn) {
+  const quote = scalar[0];
+  const isQuoted = (quote === "'" || quote === '"')
+    && scalar.length >= 2 && scalar[scalar.length - 1] === quote;
+  const inner = isQuoted ? scalar.slice(1, -1) : scalar;
+  const nextInner = appendFn(inner);
+  if (nextInner === inner) return scalar;
+  return isQuoted ? `${quote}${nextInner}${quote}` : nextInner;
+}
+
 function ensureYamlEntitlementDescription(lines, path, method, requiredTier) {
   const op = findYamlOperationRangeForMethod(lines, path, method);
   if (!op) return false;
@@ -565,7 +582,7 @@ function ensureYamlEntitlementDescription(lines, path, method, requiredTier) {
   const prefix = '            description: ';
   if (!line.startsWith(prefix)) return false;
   const current = line.slice(prefix.length);
-  const next = appendEntitlementNote(current, requiredTier);
+  const next = appendNoteToYamlScalar(current, (text) => appendEntitlementNote(text, requiredTier));
   if (next === current) return false;
   lines[descIndex] = prefix + next;
   return true;
@@ -604,7 +621,7 @@ function ensureYamlGateDescription(lines, path, method, note) {
   const prefix = '            description: ';
   if (!line.startsWith(prefix)) return false;
   const current = line.slice(prefix.length);
-  const next = appendGateNote(current, note);
+  const next = appendNoteToYamlScalar(current, (text) => appendGateNote(text, note));
   if (next === current) return false;
   lines[descIndex] = prefix + next;
   return true;
@@ -711,14 +728,17 @@ function injectYamlEntitlementContract(text) {
   );
 
   for (const [path, requiredTier] of ENDPOINT_ENTITLEMENTS) {
-    // Public paths opt out of auth entirely and carry no entitlement 403 —
-    // injectJson handles them in its isPublic branch, never the entitlement
-    // branch, so mirror that here (a public+entitlement overlap would otherwise
-    // diverge from the JSON sibling).
-    if (PUBLIC_PATHS.has(path)) continue;
     const methods = methodsByPath.get(path);
     if (!methods) continue;
+    // The ForbiddenError schema tracks the presence of ANY entitlement path in
+    // the spec regardless of public status, mirroring injectJson's
+    // public-agnostic hasEntitlementPath — so flag it before the public opt-out.
     matchedEntitlementPath = true;
+    // Public paths opt out of auth entirely and carry no per-operation
+    // entitlement 403/note: injectJson handles them in its isPublic branch, not
+    // the entitlement branch, so skip the per-op stamping here (a public +
+    // entitlement overlap would otherwise diverge from the JSON sibling).
+    if (PUBLIC_PATHS.has(path)) continue;
     for (const method of methods) {
       changed = ensureYamlEntitlementDescription(lines, path, method, requiredTier) || changed;
       changed = ensureYamlForbiddenResponse(lines, path, method) || changed;
@@ -730,6 +750,11 @@ function injectYamlEntitlementContract(text) {
   }
 
   for (const [path, gate] of PUBLIC_FORBIDDEN_GATES) {
+    // injectJson applies the bot-verification 403 + note only inside its
+    // isPublic branch, so a forbidden-gate path that is not actually public
+    // must not receive the gate 403 here — it takes the authenticated 401 path
+    // instead. Skip non-public gate paths to keep byte-parity with the JSON.
+    if (!PUBLIC_PATHS.has(path)) continue;
     const methods = methodsByPath.get(path);
     if (!methods) continue;
     for (const method of methods) {
