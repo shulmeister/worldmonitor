@@ -414,6 +414,44 @@ async function scanHandler(ctx: any, args: {
     }
   }
 
+  // Stale-notice recovery sweep. The per-row loop above only recovers notices
+  // for users who appear in THIS scan's usage rows. Burst notices — and any
+  // notice belonging to a user who has since gone idle — never reappear in a
+  // later scan, so without this sweep they stay `current: true` forever. For
+  // every open notice whose (user, dimension) produced no row this scan AND
+  // whose data source is healthy, clear it: no usage row from a healthy source
+  // means the user has fallen back under the threshold.
+  if (!dryRun) {
+    const seen = new Set(source.rows.map((row) => `${row.userId}::${row.dimension}`));
+    // Source-level outages (missing token, HTTP error, absent Upstash creds)
+    // land in `source.blocked` WITHOUT a userId. Never treat a blocked source
+    // as "recovered" — a transient Axiom/Redis failure must not silently clear
+    // every open notice for that dimension.
+    const blockedDimensions = new Set(
+      source.blocked.filter((b) => !b.userId && b.dimension).map((b) => b.dimension),
+    );
+    const blockedUserDimensions = new Set(
+      source.blocked
+        .filter((b) => b.userId && b.dimension)
+        .map((b) => `${b.userId}::${b.dimension}`),
+    );
+    const openKeys = await ctx.runQuery(
+      (internal as any).apiPlanLimitNotices.listCurrentNoticeKeys,
+      {},
+    ) as Array<{ userId: string; dimension: PlanLimitDimension }>;
+    for (const key of openKeys) {
+      const pair = `${key.userId}::${key.dimension}`;
+      if (seen.has(pair)) continue; // evaluated this scan — handled by the loop above
+      if (blockedDimensions.has(key.dimension)) continue;
+      if (blockedUserDimensions.has(pair)) continue;
+      const result = await ctx.runMutation(
+        (internal as any).apiPlanLimitNotices.clearRecoveredCurrentNotices,
+        { userId: key.userId, dimension: key.dimension, recoveredAt: now },
+      ) as { cleared: number };
+      summary.recovered += result.cleared;
+    }
+  }
+
   return summary;
 }
 

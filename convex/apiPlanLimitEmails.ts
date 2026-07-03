@@ -2,6 +2,7 @@ import { v } from "convex/values";
 import { internalAction, internalQuery } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { PRODUCT_CATALOG } from "./config/productCatalog";
+import { MAX_EMAIL_ATTEMPTS } from "./apiPlanLimitNotices";
 
 const RESEND_URL = "https://api.resend.com/emails";
 const FROM = "World Monitor <noreply@worldmonitor.app>";
@@ -21,6 +22,7 @@ type NoticeEmailRow = {
   upgradeTargetPlanKey?: string;
   ctaKind: "checkout" | "billing_portal" | "contact_support" | "none";
   blockedReason?: string;
+  emailAttempts?: number;
 };
 
 type Recipient = {
@@ -172,6 +174,13 @@ export const sendDuePlanLimitEmails = internalAction({
   handler: async (ctx, args) => {
     const apiKey = process.env.RESEND_API_KEY;
     const now = args.now ?? Date.now();
+    // Missing config is not a per-notice failure. Bail before touching any
+    // notice so due notices stay `pending` (not poisoned to `failed`, which
+    // would burn attempts / force a backoff) and deliver on the next run once
+    // RESEND_API_KEY is set.
+    if (!apiKey) {
+      throw new Error("[apiPlanLimitEmails] RESEND_API_KEY not configured; skipped email delivery");
+    }
     const due = await ctx.runQuery(
       (internal as any).apiPlanLimitNotices.listEmailDue,
       { now, limit: args.limit ?? 50 },
@@ -201,16 +210,6 @@ export const sendDuePlanLimitEmails = internalAction({
         summary.skipped += 1;
         continue;
       }
-      if (!apiKey) {
-        await ctx.runMutation(
-          (internal as any).apiPlanLimitNotices.markEmailStatus,
-          { noticeId: notice._id, emailStatus: "failed" },
-        );
-        summary.failed += 1;
-        failureMessages.push("RESEND_API_KEY missing");
-        continue;
-      }
-
       try {
         await sendEmail(apiKey, recipient.email, noticeSubject(notice), noticeHtml(notice));
         await ctx.runMutation(
@@ -219,12 +218,20 @@ export const sendDuePlanLimitEmails = internalAction({
         );
         summary.sent += 1;
       } catch (err) {
+        // Count the attempt so a permanently undeliverable recipient stops
+        // being retried after MAX_EMAIL_ATTEMPTS (listEmailDue drops it),
+        // instead of failing on every hourly scan forever.
+        const attempts = (notice.emailAttempts ?? 0) + 1;
         await ctx.runMutation(
           (internal as any).apiPlanLimitNotices.markEmailStatus,
-          { noticeId: notice._id, emailStatus: "failed" },
+          { noticeId: notice._id, emailStatus: "failed", emailAttempts: attempts },
         );
         summary.failed += 1;
-        failureMessages.push(err instanceof Error ? err.message : String(err));
+        // Only surface (and let the batch throw) while we're still retrying.
+        // Once we've given up, stay quiet so the delivery cron stops erroring.
+        if (attempts < MAX_EMAIL_ATTEMPTS) {
+          failureMessages.push(err instanceof Error ? err.message : String(err));
+        }
       }
     }
     if (failureMessages.length > 0) {

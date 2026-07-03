@@ -132,6 +132,36 @@ describe("api plan-limit usage scanner", () => {
     });
   });
 
+  test("recovers a lingering burst notice once the burst stops", async () => {
+    const t = convexTest(schema, modules);
+    await seedEntitlement(t, "user-pro", "pro_monthly");
+
+    // Trip a sustained burst so a current notice exists.
+    await t.action(usageFns.scanApiPlanLimitUsageInternal, {
+      now: NOW,
+      rows: [{
+        userId: "user-pro",
+        dimension: "mcp_minute_burst",
+        usage: 90,
+        minuteBuckets: [61, 62, 63, 65, 66],
+        source: "axiom:mcp_rate_limit_hit",
+      }],
+    });
+    let notices = await t.run((ctx) => ctx.db.query("apiPlanLimitNotices").collect());
+    expect(notices.filter((notice) => notice.current)).toHaveLength(1);
+
+    // Next scan: the burst is gone so no row is produced for this user. The
+    // stale-notice sweep must clear the lingering current notice; the per-row
+    // recovery path never would (there is no row to recover from).
+    const summary = await t.action(usageFns.scanApiPlanLimitUsageInternal, {
+      now: NOW + 3_600_000,
+      rows: [],
+    });
+    expect(summary.recovered).toBe(1);
+    notices = await t.run((ctx) => ctx.db.query("apiPlanLimitNotices").collect());
+    expect(notices.filter((notice) => notice.current)).toHaveLength(0);
+  });
+
   test("skips rows that cannot be joined to an active entitlement", async () => {
     const t = convexTest(schema, modules);
 

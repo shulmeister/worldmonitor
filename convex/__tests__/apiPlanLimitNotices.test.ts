@@ -6,6 +6,7 @@ import {
   getUsageRatio,
   isNoticeEmailDue,
   shouldRecoverNotice,
+  MAX_EMAIL_ATTEMPTS,
 } from "../apiPlanLimitNotices";
 import schema from "../schema";
 
@@ -158,6 +159,62 @@ describe("api plan-limit notice persistence", () => {
     expect(result.cleared).toBe(1);
     const rows = await t.run((ctx) => ctx.db.query("apiPlanLimitNotices").collect());
     expect(rows[0].current).toBe(false);
+  });
+
+  test("dismissal persists across a same-window rescan", async () => {
+    const t = convexTest(schema, modules);
+    const created = await t.mutation(internalFns.recordUsageEvaluation, {
+      rollup: rollup({ usage: 1_200 }),
+      notice: { state: "over_limit", ctaKind: "billing_portal", upgradeTargetPlanKey: "api_business" },
+    });
+    await t.withIdentity(USER).mutation(publicFns.acknowledgeNotice, { noticeId: created.noticeId });
+    expect(await t.withIdentity(USER).query(publicFns.listCurrentForUser, {})).toHaveLength(0);
+
+    // The hourly scanner re-evaluates the same day+state an hour later. It must
+    // NOT clear acknowledgedAt, or "Dismiss" would only last until the next scan.
+    await t.mutation(internalFns.recordUsageEvaluation, {
+      rollup: rollup({ usage: 1_300, computedAt: NOW + 3_600_000 }),
+      notice: { state: "over_limit", ctaKind: "billing_portal", upgradeTargetPlanKey: "api_business" },
+    });
+    expect(await t.withIdentity(USER).query(publicFns.listCurrentForUser, {})).toHaveLength(0);
+  });
+
+  test("a new window supersedes the prior window's current notice", async () => {
+    const t = convexTest(schema, modules);
+    await t.mutation(internalFns.recordUsageEvaluation, {
+      rollup: rollup({ usage: 1_200, windowKey: "2026-07-02" }),
+      notice: { state: "over_limit", ctaKind: "billing_portal", upgradeTargetPlanKey: "api_business" },
+    });
+    await t.mutation(internalFns.recordUsageEvaluation, {
+      rollup: rollup({ usage: 1_500, windowKey: "2026-07-03", computedAt: NOW + 86_400_000 }),
+      notice: { state: "over_limit", ctaKind: "billing_portal", upgradeTargetPlanKey: "api_business" },
+    });
+
+    const rows = await t.run((ctx) => ctx.db.query("apiPlanLimitNotices").collect());
+    expect(rows).toHaveLength(2);
+    const current = rows.filter((notice) => notice.current);
+    expect(current).toHaveLength(1);
+    expect(current[0].windowKey).toBe("2026-07-03");
+
+    const visible = await t.withIdentity(USER).query(publicFns.listCurrentForUser, {});
+    expect(visible).toHaveLength(1);
+  });
+
+  test("stops retrying a failed notice after MAX_EMAIL_ATTEMPTS", async () => {
+    const t = convexTest(schema, modules);
+    const created = await t.mutation(internalFns.recordUsageEvaluation, {
+      rollup: rollup({ usage: 1_200 }),
+      notice: { state: "over_limit", ctaKind: "billing_portal", upgradeTargetPlanKey: "api_business" },
+    });
+    await t.mutation(internalFns.markEmailStatus, {
+      noticeId: created.noticeId,
+      emailStatus: "failed",
+      emailAttempts: MAX_EMAIL_ATTEMPTS,
+    });
+
+    const due = await t.query(internalFns.listEmailDue, { now: NOW + 60_000 });
+    expect(due.map((notice: { _id: unknown }) => String(notice._id)))
+      .not.toContain(String(created.noticeId));
   });
 
   test("failed email notices remain eligible for retry", async () => {

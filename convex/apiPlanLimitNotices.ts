@@ -45,6 +45,12 @@ const SUSTAINED_BURST_MIN_OVER_LIMIT = 3;
 const WARNING_EMAIL_CADENCE_MS = 24 * 60 * 60 * 1000;
 const OVER_LIMIT_EMAIL_CADENCE_MS = 24 * 60 * 60 * 1000;
 const BURST_EMAIL_CADENCE_MS = 6 * 60 * 60 * 1000;
+// Give up re-sending a `failed` notice after this many attempts so a
+// permanently undeliverable recipient (hard bounce, bad address) stops being
+// retried on every hourly scan — and stops failing the delivery cron forever.
+// The notice stays `failed`, so getEnforcementReadiness still blocks hard
+// enforcement for that user (we could not reach them).
+export const MAX_EMAIL_ATTEMPTS = 6;
 
 const dimensionValidator = v.union(
   v.literal("api_daily_requests"),
@@ -228,24 +234,30 @@ export const recordUsageEvaluation = internalMutation({
       )
       .first();
 
+    // Supersede every OTHER notice that is still `current` for this
+    // (user, dimension) — whether it differs by state (severity escalation)
+    // or by windowKey (a new day/minute opened). Without the windowKey sweep,
+    // a user who stays over the limit accumulates one lingering `current`
+    // notice per window (per day for daily dims, per hourly scan for burst
+    // dims), and the Settings UI stacks duplicate banners. Only the notice we
+    // are about to upsert (same state + window) stays current, so at most one
+    // live notice exists per dimension.
     for (const state of API_PLAN_LIMIT_NOTICE_STATES) {
-      if (state === args.notice.state) continue;
-      const superseded = await ctx.db
+      const priorCurrent = await ctx.db
         .query("apiPlanLimitNotices")
-        .withIndex("by_notice_dedupe", (q) =>
-          q
-            .eq("userId", args.rollup.userId)
-            .eq("planKey", args.rollup.planKey)
-            .eq("dimension", args.rollup.dimension)
-            .eq("state", state)
-            .eq("windowKey", args.rollup.windowKey),
+        .withIndex("by_user_state", (q) =>
+          q.eq("userId", args.rollup.userId).eq("state", state),
         )
-        .first();
-      if (superseded?.current) {
-        await ctx.db.patch(superseded._id, {
-          current: false,
-          lastSeenAt: now,
-        });
+        .filter((q) =>
+          q.and(
+            q.eq(q.field("dimension"), args.rollup.dimension),
+            q.eq(q.field("current"), true),
+          ),
+        )
+        .collect();
+      for (const prior of priorCurrent) {
+        if (existingNotice && prior._id === existingNotice._id) continue;
+        await ctx.db.patch(prior._id, { current: false, lastSeenAt: now });
       }
     }
 
@@ -267,10 +279,12 @@ export const recordUsageEvaluation = internalMutation({
     };
 
     if (existingNotice) {
-      await ctx.db.patch(existingNotice._id, {
-        ...noticePatch,
-        acknowledgedAt: undefined,
-      });
+      // Preserve `acknowledgedAt`: an hourly rescan of the SAME state+window
+      // must not silently un-dismiss a notice the user already dismissed —
+      // otherwise "Dismiss" lasts under an hour. A genuine escalation lands on
+      // a different dedupe key (new state) and inserts a fresh, un-acknowledged
+      // notice below, so escalations still re-surface.
+      await ctx.db.patch(existingNotice._id, noticePatch);
       return { rollupId, noticeId: existingNotice._id };
     }
 
@@ -316,6 +330,36 @@ export const clearRecoveredCurrentNotices = internalMutation({
       }
     }
     return { cleared };
+  },
+});
+
+/**
+ * Distinct (userId, dimension) pairs that still have a `current` notice.
+ *
+ * Used by the usage scanner's stale-notice recovery sweep: burst notices (and
+ * any notice for a user who has gone idle) never appear in a later scan's
+ * usage rows, so the per-row recovery path never fires for them. The scanner
+ * diffs this set against the users it actually evaluated and clears the ones
+ * whose source is healthy but produced no usage — i.e. they have recovered.
+ *
+ * Reads through the `by_current` index so it scans only live notices, not the
+ * whole historical table.
+ */
+export const listCurrentNoticeKeys = internalQuery({
+  args: {},
+  handler: async (ctx) => {
+    const current = await ctx.db
+      .query("apiPlanLimitNotices")
+      .withIndex("by_current", (q) => q.eq("current", true))
+      .collect();
+    const seen = new Map<string, { userId: string; dimension: ApiPlanLimitDimension }>();
+    for (const notice of current) {
+      seen.set(`${notice.userId}::${notice.dimension}`, {
+        userId: notice.userId,
+        dimension: notice.dimension,
+      });
+    }
+    return [...seen.values()];
   },
 });
 
@@ -373,14 +417,21 @@ export const listEmailDue = internalQuery({
       .take(max);
     const candidates = [...pending, ...failed];
     return candidates
-      .filter((notice) =>
-        notice.current &&
-        isNoticeEmailDue({
+      .filter((notice) => {
+        if (!notice.current) return false;
+        // A `failed` notice is retried until MAX_EMAIL_ATTEMPTS, then dropped
+        // from the due set for good. It stays `failed` in the table so the
+        // readiness gate keeps enforcement blocked — but it no longer gets
+        // re-sent every scan or keeps the delivery cron throwing forever.
+        if (notice.emailStatus === "failed") {
+          return (notice.emailAttempts ?? 0) < MAX_EMAIL_ATTEMPTS;
+        }
+        return isNoticeEmailDue({
           state: notice.state,
           lastEmailedAt: notice.lastEmailedAt,
           now: args.now,
-        }),
-      )
+        });
+      })
       .slice(0, max);
   },
 });
@@ -390,6 +441,7 @@ export const markEmailStatus = internalMutation({
     noticeId: v.id("apiPlanLimitNotices"),
     emailStatus: emailStatusValidator,
     emailedAt: v.optional(v.number()),
+    emailAttempts: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
     const notice = await ctx.db.get(args.noticeId);
@@ -397,6 +449,7 @@ export const markEmailStatus = internalMutation({
     await ctx.db.patch(args.noticeId, {
       emailStatus: args.emailStatus,
       lastEmailedAt: args.emailedAt ?? notice.lastEmailedAt,
+      ...(args.emailAttempts !== undefined ? { emailAttempts: args.emailAttempts } : {}),
     });
     return { ok: true };
   },
@@ -410,8 +463,14 @@ export const getEnforcementReadiness = internalQuery({
   handler: async (ctx, args) => {
     const now = args.now ?? Date.now();
     const staleAfterMs = args.staleAfterMs ?? 2 * 60 * 60 * 1000;
-    const notices = await ctx.db.query("apiPlanLimitNotices").collect();
-    const current = notices.filter((notice) => notice.current);
+    // Scan only live notices through `by_current` — the table grows without
+    // bound as historical (non-current) notices pile up, so a full `.collect()`
+    // would eventually blow past Convex's per-query scan limit and make the
+    // readiness gate throw instead of answering.
+    const current = await ctx.db
+      .query("apiPlanLimitNotices")
+      .withIndex("by_current", (q) => q.eq("current", true))
+      .collect();
     const summary = {
       generatedAt: now,
       totalCurrent: current.length,

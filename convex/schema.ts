@@ -633,13 +633,19 @@ export default defineSchema({
     lastEmailedAt: v.optional(v.number()),
     acknowledgedAt: v.optional(v.number()),
     emailStatus: apiPlanLimitEmailStatus,
+    // Number of delivery attempts that ended in `failed`. Bounds retries so a
+    // permanently undeliverable recipient stops being re-sent on every scan.
+    emailAttempts: v.optional(v.number()),
     upgradeTargetPlanKey: v.optional(v.string()),
     ctaKind: apiPlanLimitCtaKind,
     blockedReason: v.optional(v.string()),
   })
     .index("by_user_state", ["userId", "state"])
     .index("by_notice_dedupe", ["userId", "planKey", "dimension", "state", "windowKey"])
-    .index("by_email_due", ["emailStatus", "lastSeenAt"]),
+    .index("by_email_due", ["emailStatus", "lastSeenAt"])
+    // Only-`current` scans (readiness gate + stale-notice recovery sweep) query
+    // through this index instead of collecting the whole (ever-growing) table.
+    .index("by_current", ["current", "lastSeenAt"]),
 
   customers: defineTable({
     userId: v.string(),
