@@ -642,7 +642,9 @@ export default defineSchema({
   })
     .index("by_user_state", ["userId", "state"])
     .index("by_notice_dedupe", ["userId", "planKey", "dimension", "state", "windowKey"])
-    .index("by_email_due", ["emailStatus", "lastSeenAt"])
+    // `current` first so listEmailDue can exclude superseded rows in the index
+    // (not a post-take filter) -- a dead-pending backlog can't starve live due notices.
+    .index("by_email_due", ["current", "emailStatus", "lastSeenAt"])
     // Only-`current` scans (readiness gate + stale-notice recovery sweep) query
     // through this index instead of collecting the whole (ever-growing) table.
     .index("by_current", ["current", "lastSeenAt"])

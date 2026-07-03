@@ -238,6 +238,42 @@ describe("api plan-limit notice persistence", () => {
     ).toHaveLength(0);
   });
 
+  test("listEmailDue is not starved by a backlog of superseded pending rows", async () => {
+    const t = convexTest(schema, modules);
+    const OLD = NOW - 10 * 86_400_000;
+    // Backlog of dead (current:false) pending rows with OLD lastSeenAt -- these
+    // sort first in the oldest-first email-due scan and, without a current-scoped
+    // index, consume the whole take() budget before the live notice is reached.
+    await t.run(async (ctx) => {
+      for (let i = 0; i < 7; i++) {
+        await ctx.db.insert("apiPlanLimitNotices", {
+          userId: `dead-${i}`,
+          planKey: "api_starter",
+          dimension: "api_daily_requests",
+          state: "over_limit",
+          windowKey: `dead-${i}`,
+          firstSeenAt: OLD,
+          lastSeenAt: OLD + i,
+          usage: 1_500,
+          limit: 1_000,
+          usageRatio: 1.5,
+          current: false,
+          emailStatus: "pending",
+          ctaKind: "contact_support",
+        });
+      }
+    });
+
+    // One genuinely-due, current pending notice (newer lastSeenAt).
+    const created = await t.mutation(internalFns.recordUsageEvaluation, {
+      rollup: rollup({ usage: 1_200 }),
+      notice: { state: "over_limit", ctaKind: "contact_support" },
+    });
+
+    const due = await t.query(internalFns.listEmailDue, { now: NOW + 60_000, limit: 2 });
+    expect(due.map((n: { _id: unknown }) => String(n._id))).toContain(String(created.noticeId));
+  });
+
   test("dismissal persists across a same-window rescan", async () => {
     const t = convexTest(schema, modules);
     const created = await t.mutation(internalFns.recordUsageEvaluation, {

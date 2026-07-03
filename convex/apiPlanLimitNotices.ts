@@ -429,13 +429,16 @@ export const listEmailDue = internalQuery({
   },
   handler: async (ctx, args) => {
     const max = args.limit ?? 100;
+    // Scope to `current` in the INDEX so a backlog of superseded (current:false)
+    // pending/failed rows -- which sort first by oldest lastSeenAt -- can never
+    // consume the take() budget and starve genuinely-due live notices.
     const pending = await ctx.db
       .query("apiPlanLimitNotices")
-      .withIndex("by_email_due", (q) => q.eq("emailStatus", "pending"))
+      .withIndex("by_email_due", (q) => q.eq("current", true).eq("emailStatus", "pending"))
       .take(max * 3);
     const failed = await ctx.db
       .query("apiPlanLimitNotices")
-      .withIndex("by_email_due", (q) => q.eq("emailStatus", "failed"))
+      .withIndex("by_email_due", (q) => q.eq("current", true).eq("emailStatus", "failed"))
       .take(max);
     const candidates = [...pending, ...failed];
     return candidates
