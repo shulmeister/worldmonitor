@@ -80,6 +80,40 @@ describe("api plan-limit usage scanner", () => {
     expect(dailyRollup?.source).toContain("apikey_day");
   });
 
+  test("a malformed meter body blocks the read instead of false-clearing a live notice", async () => {
+    const t = convexTest(schema, modules);
+    await seedEntitlement(t, "user-api", "api_starter");
+    vi.stubEnv("AXIOM_QUERY_TOKEN", "test-token");
+    vi.stubEnv("UPSTASH_REDIS_REST_URL", "https://upstash.test");
+    vi.stubEnv("UPSTASH_REDIS_REST_TOKEN", "upstash-token");
+
+    // Scan 1: meter over the 1000/day limit -> current over_limit notice.
+    vi.stubGlobal("fetch", vi.fn(async (url: string | URL) => {
+      const u = String(url);
+      if (u.includes("api.axiom.co")) return new Response(JSON.stringify({ matches: [] }), { status: 200 });
+      if (u.includes("rl%3Aapikey%3Aday")) return new Response(JSON.stringify({ result: "1200" }), { status: 200 });
+      return new Response(JSON.stringify({ result: "0" }), { status: 200 });
+    }));
+    await t.action(usageFns.scanApiPlanLimitUsageInternal, { now: NOW });
+    let notices = await t.run((ctx) => ctx.db.query("apiPlanLimitNotices").collect());
+    expect(notices.filter((n) => n.current)).toHaveLength(1);
+
+    // Scan 2: the meter GET returns a MALFORMED (non-JSON) body. That must be a
+    // BLOCKED read (null), not usage:0 -- otherwise the ratio-0 recovery path
+    // false-clears a paying customer's live over_limit notice on a Redis hiccup.
+    vi.stubGlobal("fetch", vi.fn(async (url: string | URL) => {
+      const u = String(url);
+      if (u.includes("api.axiom.co")) return new Response(JSON.stringify({ matches: [] }), { status: 200 });
+      if (u.includes("rl%3Aapikey%3Aday")) return new Response("<html>bad gateway</html>", { status: 200 });
+      return new Response(JSON.stringify({ result: "0" }), { status: 200 });
+    }));
+    const summary = await t.action(usageFns.scanApiPlanLimitUsageInternal, { now: NOW + 3_600_000 });
+
+    notices = await t.run((ctx) => ctx.db.query("apiPlanLimitNotices").collect());
+    expect(notices.filter((n) => n.current)).toHaveLength(1); // NOT false-cleared
+    expect(summary.blocked.some((b: { reason?: string }) => b.reason === "redis_read_failed")).toBe(true);
+  });
+
   test("dry run reports would-notify without mutating notice state", async () => {
     const t = convexTest(schema, modules);
     await seedEntitlement(t, "user-api", "api_starter");

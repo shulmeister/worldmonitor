@@ -237,9 +237,16 @@ async function readRedisInteger(key: string): Promise<number | null> {
       signal: AbortSignal.timeout(5_000),
     });
     if (!resp.ok) return null;
-    const data = await resp.json().catch(() => null) as { result?: unknown } | null;
-    const n = Number(data?.result ?? 0);
-    return Number.isFinite(n) ? n : 0;
+    // Let a JSON-parse failure propagate to the outer catch -> null (BLOCKED),
+    // not a silent 0. A false 0 here reads as "genuinely zero usage" and would
+    // false-clear a live over_limit notice on a corrupt Upstash body.
+    const data = await resp.json() as { result?: unknown } | null;
+    const raw = data?.result;
+    // Upstash returns result:null for a missing key -> genuinely 0 usage today.
+    if (raw == null) return 0;
+    const n = Number(raw);
+    // A present-but-non-numeric value is corruption, not zero -> block it.
+    return Number.isFinite(n) ? n : null;
   } catch {
     return null;
   }
