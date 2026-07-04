@@ -228,6 +228,8 @@ function getNodeRequestForTest() {
 }
 
 function choosePinnedAddress(resolvedAddresses) {
+  // Prefer IPv4 when both families are safe so Vercel egress stays on the
+  // most broadly reachable path; IPv6-only hosts still use their sole answer.
   const pinnedAddress = resolvedAddresses.find(address => address.includes('.')) || resolvedAddresses[0];
   if (!pinnedAddress) {
     throw new McpProxySsrfError('serverUrl DNS resolution returned no addresses');
@@ -309,6 +311,9 @@ async function nodePinnedFetch(url, init, resolvedAddresses) {
 
 async function pinnedFetch(url, init = {}) {
   const { resolvedAddresses } = await revalidateBeforeFetch(url);
+  // The legacy fetch seam and Node request seam are mutually exclusive in
+  // tests: global fetch mocks keep existing tests isolated, while socket-pin
+  // tests leave fetch alone and install TEST_NODE_REQUEST_KEY.
   const fetchForTest = getFetchForTest();
   if (fetchForTest) return fetchForTest(url.toString(), init);
   return nodePinnedFetch(url, init, resolvedAddresses);
@@ -513,7 +518,7 @@ class SseSession {
                 // to prevent SSRF: a malicious server could emit an RFC1918 address.
                 let resolved;
                 try {
-                  resolved = new URL(data.startsWith('http') ? data : data, this._sseUrl);
+                  resolved = new URL(data, this._sseUrl);
                 } catch {
                   this._endpointDeferred.reject(new Error('SSE endpoint event contains invalid URL'));
                   return;
