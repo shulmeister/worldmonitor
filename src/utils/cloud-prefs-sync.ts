@@ -98,10 +98,11 @@ let _dirtyKeysUserId: string | null = null;
 
 function persistDirtyKeys(): void {
   try {
-    if (_dirtyKeys.size === 0 || !_dirtyKeysUserId) {
+    if (_dirtyKeys.size === 0) {
       Storage.prototype.removeItem.call(localStorage, KEY_DIRTY_KEYS);
       return;
     }
+    if (!_dirtyKeysUserId) return;
     Storage.prototype.setItem.call(localStorage, KEY_DIRTY_KEYS, JSON.stringify({
       userId: _dirtyKeysUserId,
       keys: [..._dirtyKeys],
@@ -565,8 +566,8 @@ export function onSignOut(): void {
   // Dirty-key tracking is per-user session state — drop it so edits made by
   // the next signed-in user don't merge against the prior user's pending set.
   _dirtyKeys.clear();
-  _dirtyKeysUserId = null;
   persistDirtyKeys();
+  _dirtyKeysUserId = null;
 
   // Preserve prefs; only clear sync metadata
   localStorage.removeItem(KEY_SYNC_VERSION);

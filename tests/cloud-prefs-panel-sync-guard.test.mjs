@@ -120,5 +120,15 @@ describe('cloud prefs panel sync guardrails', () => {
       /if \(changed\) persistDirtyKeys\(\);/,
       'successful uploads must clear only the dirty keys that actually settled',
     );
+    assert.match(
+      cloudSyncSrc,
+      /if \(_dirtyKeys\.size === 0\) \{[\s\S]*Storage\.prototype\.removeItem\.call\(localStorage, KEY_DIRTY_KEYS\);[\s\S]*return;[\s\S]*\}[\s\S]*if \(!_dirtyKeysUserId\) return;/,
+      'ownerless dirty writes before sign-in must not delete the previous persisted dirty-key marker',
+    );
+    assert.match(
+      cloudSyncSrc,
+      /_dirtyKeys\.clear\(\);\s*persistDirtyKeys\(\);\s*_dirtyKeysUserId = null;/,
+      'sign-out must clear the persisted dirty-key marker before dropping the current user id',
+    );
   });
 });
