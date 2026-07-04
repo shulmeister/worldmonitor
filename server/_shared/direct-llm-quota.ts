@@ -4,13 +4,21 @@ import { PRO_DAILY_QUOTA_TTL_SECONDS, secondsUntilUtcMidnight } from './pro-mcp-
 export const DIRECT_LLM_DAILY_QUOTA_LIMIT = 50;
 export const DIRECT_LLM_REDIS_UNAVAILABLE_RETRY_AFTER_SECONDS = 30;
 
-export const DIRECT_LLM_QUOTA_PATHS = new Set<string>([
+export const DIRECT_LLM_GATEWAY_QUOTA_PATHS = new Set<string>([
   '/api/intelligence/v1/classify-event',
   '/api/intelligence/v1/deduct-situation',
   '/api/intelligence/v1/get-country-intel-brief',
   '/api/market/v1/analyze-stock',
   '/api/news/v1/summarize-article',
+]);
+
+export const DIRECT_LLM_SELF_METERED_QUOTA_PATHS = new Set<string>([
   '/api/chat-analyst',
+]);
+
+export const DIRECT_LLM_QUOTA_PATHS = new Set<string>([
+  ...DIRECT_LLM_GATEWAY_QUOTA_PATHS,
+  ...DIRECT_LLM_SELF_METERED_QUOTA_PATHS,
 ]);
 
 export type DirectLlmQuotaReservation =

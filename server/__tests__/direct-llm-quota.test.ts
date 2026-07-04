@@ -4,8 +4,10 @@ import { describe, expect, test } from "vitest";
 
 import {
   DIRECT_LLM_DAILY_QUOTA_LIMIT,
+  DIRECT_LLM_GATEWAY_QUOTA_PATHS,
   DIRECT_LLM_QUOTA_PATHS,
   DIRECT_LLM_REDIS_UNAVAILABLE_RETRY_AFTER_SECONDS,
+  DIRECT_LLM_SELF_METERED_QUOTA_PATHS,
   directLlmDailyQuotaKey,
   reserveDirectLlmQuota,
 } from "../_shared/direct-llm-quota";
@@ -69,14 +71,18 @@ describe("direct LLM daily quota", () => {
     });
   });
 
-  test("documents all direct LLM quota paths in one canonical set", () => {
-    expect([...DIRECT_LLM_QUOTA_PATHS].sort()).toEqual([
-      "/api/chat-analyst",
+  test("documents gateway-managed and self-metered direct LLM quota paths", () => {
+    expect([...DIRECT_LLM_GATEWAY_QUOTA_PATHS].sort()).toEqual([
       "/api/intelligence/v1/classify-event",
       "/api/intelligence/v1/deduct-situation",
       "/api/intelligence/v1/get-country-intel-brief",
       "/api/market/v1/analyze-stock",
       "/api/news/v1/summarize-article",
+    ]);
+    expect([...DIRECT_LLM_SELF_METERED_QUOTA_PATHS]).toEqual(["/api/chat-analyst"]);
+    expect([...DIRECT_LLM_QUOTA_PATHS].sort()).toEqual([
+      "/api/chat-analyst",
+      ...[...DIRECT_LLM_GATEWAY_QUOTA_PATHS].sort(),
     ]);
   });
 });
