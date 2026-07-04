@@ -27,8 +27,10 @@ chain:
      "agent_auth": {
        "skill": "https://worldmonitor.app/auth.md",
        "register_uri": "https://worldmonitor.app/oauth/register",
+       "claim_uri": "https://worldmonitor.app/oauth/authorize",
        "identity_types_supported": ["anonymous"],
-       "anonymous": { "credential_types_supported": ["access_token"] } } }
+       "anonymous": { "credential_types_supported": ["access_token"],
+                      "claim_uri": "https://worldmonitor.app/oauth/authorize" } } }
    ```
 
    Metadata is per-host: `issuer` and endpoints match the origin you fetched
@@ -68,7 +70,8 @@ POST /oauth/register  {"client_name":"My Agent","redirect_uris":["https://claude
 ## Claim
 
 Anonymous agents are claimed **at authorization time**, not via a separate
-endpoint. Start the authorization-code flow with a PKCE challenge:
+endpoint — so `agent_auth.claim_uri` is the authorization endpoint itself. Start
+the authorization-code flow with a PKCE challenge:
 
 ```
 GET /oauth/authorize?response_type=code&client_id=…&code_challenge=…&code_challenge_method=S256&scope=mcp

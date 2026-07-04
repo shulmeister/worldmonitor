@@ -1386,6 +1386,21 @@ describe('agent readiness: MCP/OAuth origin alignment', () => {
         ['access_token'],
         `anonymous sibling block enumerates credential types for ${host}`
       );
+      // The anonymous registration method requires a claim URI (readiness
+      // scanners reject the method without it). Anonymous credentials are
+      // claimed at authorization time, so claim_uri == the authorization
+      // endpoint. Advertised both at the agent_auth top level (parallel to
+      // register_uri) and inside the anonymous method object.
+      assert.equal(
+        json.agent_auth.claim_uri,
+        `https://${host}/oauth/authorize`,
+        `agent_auth.claim_uri = authorization endpoint for ${host}`
+      );
+      assert.equal(
+        json.agent_auth.anonymous.claim_uri,
+        `https://${host}/oauth/authorize`,
+        `anonymous method advertises claim_uri for ${host}`
+      );
     }
   });
 
@@ -1462,7 +1477,7 @@ describe('agent readiness: auth.md walkthrough', () => {
 
   it('references the auth.md spec and carries the spec anchor keywords', () => {
     assert.ok(authMd.includes('https://workos.com/auth-md'), 'auth.md must reference the WorkOS spec');
-    for (const keyword of ['agent_auth', 'register_uri', 'identity_assertion', 'id-jag', 'WWW-Authenticate']) {
+    for (const keyword of ['agent_auth', 'register_uri', 'claim_uri', 'identity_assertion', 'id-jag', 'WWW-Authenticate']) {
       assert.ok(authMd.includes(keyword), `auth.md must mention spec keyword: ${keyword}`);
     }
   });
