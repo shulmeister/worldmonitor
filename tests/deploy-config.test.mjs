@@ -239,6 +239,29 @@ describe('welcome landing page routing', () => {
     ]);
   });
 
+  // #4825: public/index.md became Vercel's DIRECTORY INDEX for `/` — filesystem
+  // resolution beats the `/` → /pro/welcome.html rewrite, so the apex homepage
+  // served raw text/markdown to browsers. No `index.*` file may exist in public/;
+  // the markdown homepage twin lives at public/home.md and keeps its scored URL
+  // through the /index.md rewrite below.
+  it('keeps public/ free of index.* files so filesystem resolution cannot hijack the / rewrite', () => {
+    const publicDir = resolve(__dirname, '../public');
+    const offenders = readdirSync(publicDir).filter((f) => /^index\./i.test(f));
+    assert.deepEqual(offenders, [], `public/${offenders[0] ?? ''} would shadow the / welcome rewrite as a directory index`);
+  });
+
+  it('serves the markdown homepage twin at /index.md via rewrite to the non-index home.md', () => {
+    assert.ok(existsSync(resolve(__dirname, '../public/home.md')), 'expected public/home.md (markdown homepage twin)');
+    const rewrite = vercelConfig.rewrites.find((r) => r.source === '/index.md');
+    assert.ok(rewrite, 'expected a rewrite for /index.md');
+    assert.equal(rewrite.destination, '/home.md');
+    const catchAll = getSpaCatchAllRewrite();
+    assert.ok(
+      vercelConfig.rewrites.indexOf(rewrite) < vercelConfig.rewrites.indexOf(catchAll),
+      '/index.md rewrite must precede the SPA catch-all'
+    );
+  });
+
   it('routes app roots to welcome and leaves non-app roots on the dashboard catch-all', () => {
     assert.equal(rootDestinationForHost('worldmonitor.app'), '/pro/welcome.html');
     assert.equal(rootDestinationForHost('www.worldmonitor.app'), '/pro/welcome.html');
