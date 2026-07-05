@@ -432,8 +432,20 @@ describe('api/mcp.ts — /.well-known/mcp dual-role alias', () => {
     assert.equal(res.status, 200);
     assert.match(res.headers.get('content-type') ?? '', /application\/json/i);
     const card = await res.json();
+    // Endpoint must be readable under EVERY manifest dialect scanners parse:
+    // top-level `url` + `kind` (ora.ai /.well-known/mcp.json convention),
+    // `serverUrl` (SEP-1649 server card), and registry-style `remotes`.
+    assert.equal(card.url, 'https://worldmonitor.app/mcp');
+    assert.equal(card.kind, 'product');
     assert.equal(card.serverUrl, 'https://worldmonitor.app/mcp');
     assert.equal(card.remotes?.[0]?.url, 'https://worldmonitor.app/mcp');
+  });
+
+  it('serves the card at the /.well-known/mcp.json alias too', async () => {
+    const res = await fetch(`${aliasUrl}.json`, { headers: { Accept: 'application/json' } });
+    assert.equal(res.status, 200);
+    const card = await res.json();
+    assert.equal(card.url, 'https://worldmonitor.app/mcp');
   });
 
   it('POST initialize completes the live Streamable HTTP handshake at the well-known URL', async () => {

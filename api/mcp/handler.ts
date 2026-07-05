@@ -292,7 +292,10 @@ function handleSseReplay(req: Request, corsHeaders: Record<string, string>): Res
 // file answered that with a bodyless 405 the check scored "MCP manifest found
 // at /.well-known/mcp but protocol handshake failed" (3/6) even though /mcp
 // itself handshakes cleanly.
-const WELL_KNOWN_MCP_PATH = '/.well-known/mcp';
+// Two manifest aliases: bare `/.well-known/mcp` (SEP-1649 server-card style)
+// and `/.well-known/mcp.json` (the ora.ai/registry convention whose schema
+// keys the endpoint as top-level `url`). Both rewrite here via vercel.json.
+const WELL_KNOWN_MCP_PATHS = new Set(['/.well-known/mcp', '/.well-known/mcp.json']);
 // Module-scope cache: the card is a static asset, immutable per deployment.
 let serverCardCache: string | null = null;
 async function serveServerCard(req: Request, corsHeaders: Record<string, string>): Promise<Response> {
@@ -346,7 +349,7 @@ export async function mcpHandler(
   // GET handling so transport semantics stay identical to /mcp.
   if (
     req.method === 'GET' &&
-    new URL(req.url).pathname === WELL_KNOWN_MCP_PATH &&
+    WELL_KNOWN_MCP_PATHS.has(new URL(req.url).pathname) &&
     !req.headers.get('last-event-id') &&
     !(req.headers.get('accept') ?? '').includes('text/event-stream')
   ) {
