@@ -323,9 +323,19 @@ async function buildProductionRows(
   // userId, in the Upstash-gated block below (not an Axiom count() by customer_id).
   // The per-minute burst axis stays Axiom-derived: the rl:apikey:min meter is a
   // single counter with no 5-bucket history to express sustained_burst.
+  //
+  // Count real API traffic: successful requests AND per-minute rate-limit
+  // rejections. In shadow mode (API_RATE_LIMIT_ENFORCE off) an over-limit request
+  // is served 200 with reason rl_min_shadow, so `status < 400` alone catches it —
+  // but once enforcement flips on, over-limit requests become 429 (rl_min_429) and
+  // a bare `status < 400` would DROP exactly the excess traffic that defines a
+  // sustained burst, capping the per-minute count at the limit so the notice
+  // silently dies at enforcement. Include the rl_min_* reasons so burst detection
+  // survives the shadow→enforce transition. Genuine errors (auth 401/403,
+  // malformed) stay excluded — they are not usage.
   const burstApl = `['wm_api_usage']
 | where event_type == "request" and _time > ago(10m)
-| where auth_kind in ("user_api_key", "enterprise_api_key") and status < 400
+| where auth_kind in ("user_api_key", "enterprise_api_key") and (status < 400 or reason in ("rl_min_429", "rl_min_shadow"))
 | where isnotnull(customer_id) and customer_id != ""
 | summarize usage = count() by customer_id, minute = bin(_time, 1m)`;
   const burst = await queryAxiom(burstApl, "api_minute_burst");
@@ -486,6 +496,14 @@ async function scanHandler(ctx: any, args: {
     : await buildProductionRows(active, now);
   summary.blocked.push(...source.blocked);
 
+  // (user::dimension) pairs the loop actually EVALUATED this scan. The recovery
+  // sweep below keys off this set — NOT all source.rows — so a row that was gated
+  // out (no_api_access) or couldn't be joined to an entitlement stays sweep-
+  // eligible. Otherwise its (user, dimension) would count as "handled" and a
+  // stale api_* notice on a now-non-apiAccess account (downgrade, or a legacy
+  // notice minted before this gate) would never clear.
+  const evaluated = new Set<string>();
+
   for (const row of source.rows) {
     const ent = byUser.get(row.userId);
     if (!ent) {
@@ -508,6 +526,7 @@ async function scanHandler(ctx: any, args: {
     const limit = getPlanLimit(planKey, row.dimension);
     const window = windowForDimension(row.dimension, now);
     summary.evaluated += 1;
+    evaluated.add(`${row.userId}::${row.dimension}`);
 
     const notice = noticeForRow(row, planKey, limit);
     if (notice?.blockedReason) {
@@ -573,7 +592,6 @@ async function scanHandler(ctx: any, args: {
   // whose data source is healthy, clear it: no usage row from a healthy source
   // means the user has fallen back under the threshold.
   if (!dryRun) {
-    const seen = new Set(source.rows.map((row) => `${row.userId}::${row.dimension}`));
     // Source-level outages (missing token, HTTP error, absent Upstash creds)
     // land in `source.blocked` WITHOUT a userId. Never treat a blocked source
     // as "recovered" — a transient Axiom/Redis failure must not silently clear
@@ -592,7 +610,7 @@ async function scanHandler(ctx: any, args: {
     ) as Array<{ userId: string; dimension: PlanLimitDimension }>;
     for (const key of openKeys) {
       const pair = `${key.userId}::${key.dimension}`;
-      if (seen.has(pair)) continue; // evaluated this scan — handled by the loop above
+      if (evaluated.has(pair)) continue; // evaluated this scan — handled by the loop above
       if (blockedDimensions.has(key.dimension)) continue;
       if (blockedUserDimensions.has(pair)) continue;
       const result = await ctx.runMutation(

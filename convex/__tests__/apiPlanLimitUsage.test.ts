@@ -500,6 +500,55 @@ describe("api plan-limit usage scanner", () => {
     expect(mcp[0].usage).toBe(60); // Redis counter, not the Axiom 80
   });
 
+  test("clears a stale api_* notice for a non-apiAccess account instead of wedging it", async () => {
+    const t = convexTest(schema, modules);
+    await seedEntitlement(t, "user-pro", "pro_monthly");
+    // A pre-existing current api_minute_burst notice — e.g. minted before the
+    // no_api_access gate existed, or left behind after an api_starter→pro
+    // downgrade. Insert it directly.
+    await t.run(async (ctx) => {
+      await ctx.db.insert("apiPlanLimitNotices", {
+        userId: "user-pro",
+        planKey: "api_starter",
+        dimension: "api_minute_burst",
+        state: "sustained_burst",
+        windowKey: "2020-01-01",
+        usage: 100,
+        limit: 60,
+        usageRatio: null,
+        current: true,
+        firstSeenAt: NOW - 86_400_000,
+        lastSeenAt: NOW - 86_400_000,
+        emailStatus: "sent",
+        ctaKind: "checkout",
+      });
+    });
+
+    // A source row for this non-apiAccess user is gated (no_api_access) and NOT
+    // evaluated, so the recovery sweep must still process the pair and clear the
+    // stale notice — not treat the gated row as "handled" and wedge it forever.
+    const summary = await t.action(usageFns.scanApiPlanLimitUsageInternal, {
+      now: NOW,
+      rows: [{
+        userId: "user-pro",
+        dimension: "api_minute_burst",
+        usage: 500,
+        minuteBuckets: [500, 500, 500, 500, 500],
+        source: "test",
+      }],
+    });
+
+    expect(summary.skipped).toContainEqual({
+      userId: "user-pro",
+      dimension: "api_minute_burst",
+      reason: "no_api_access",
+    });
+    expect(summary.recovered).toBe(1);
+    const current = (await t.run((ctx) => ctx.db.query("apiPlanLimitNotices").collect()))
+      .filter((n) => n.current);
+    expect(current).toHaveLength(0);
+  });
+
   test("skips rows that cannot be joined to an active entitlement", async () => {
     const t = convexTest(schema, modules);
 
