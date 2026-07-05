@@ -1015,6 +1015,7 @@ async function buildAiOverlay(
     temperature: 0.2,
     maxTokens: 500,
     timeoutMs: 20_000,
+    stage: 'analyze-stock',
     providerOrder: ['openrouter', 'generic'],
     validate: (content) => {
       try {

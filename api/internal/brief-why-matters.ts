@@ -234,6 +234,7 @@ async function runAnalystPath(story: StoryPayload, iso2: string | null): Promise
       maxTokens: 260,
       temperature: 0.4,
       timeoutMs: 15_000,
+      stage: 'brief-why-matters-analyst',
       // Provider is pinned via LLM_REASONING_PROVIDER env var (already
       // set to 'openrouter' in prod). `callLlmReasoning` routes through
       // the resolveProviderChain based on that env.
@@ -271,6 +272,7 @@ async function runGeminiPath(story: StoryPayload): Promise<string | null> {
       maxTokens: 120,
       temperature: 0.4,
       timeoutMs: 10_000,
+      stage: 'brief-why-matters-gemini',
       // Note: no `validate` option. The post-call parseWhyMatters check
       // below handles rejection by returning null. Using validate inside
       // callLlmReasoning would walk the provider chain on parse-reject,

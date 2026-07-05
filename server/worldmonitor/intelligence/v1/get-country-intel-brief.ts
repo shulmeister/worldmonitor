@@ -234,6 +234,7 @@ Rules:
         maxTokens: 1100,
         timeoutMs: UPSTREAM_TIMEOUT_MS,
         systemAppend: frameworkRaw || undefined,
+        stage: 'country-intel-brief',
       });
 
       if (!llmResult) return null;

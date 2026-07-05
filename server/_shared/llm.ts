@@ -1,6 +1,22 @@
 import { CHROME_UA } from './constants';
 import { isProviderAvailable } from './llm-health';
 import { sanitizeForPrompt } from './llm-sanitize.js';
+import { buildLlmCallEvent, deliverUsageEvents, type LlmCallEvent } from './usage';
+
+function promptChars(messages: Array<{ role: string; content: string }>): number {
+  return messages.reduce((sum, m) => sum + (m.content?.length ?? 0), 0);
+}
+
+// Best-effort, awaited: one POST per logical call (all provider attempts
+// batched). deliverUsageEvents no-ops unless USAGE_TELEMETRY=1; awaiting a
+// ≤1.5s-bounded telemetry write is noise next to a multi-second completion
+// and survives Edge isolate teardown (no dangling promise).
+async function flushLlmEvents(events: LlmCallEvent[]): Promise<void> {
+  if (events.length === 0) return;
+  try {
+    await deliverUsageEvents(events);
+  } catch { /* telemetry must never affect the call result */ }
+}
 
 export interface ProviderCredentials {
   apiUrl: string;
@@ -141,6 +157,8 @@ export interface LlmCallOptions {
   validate?: (content: string) => boolean;
   /** Optional text to append to the system message (index 0). Appended as \n\n---\n\n<systemAppend>. No-op if no system message at index 0. */
   systemAppend?: string;
+  /** Caller surface tag for llm_call usage telemetry (e.g. 'classify-event'). */
+  stage?: string;
 }
 
 export interface LlmCallResult {
@@ -242,6 +260,10 @@ export function callLlmReasoningStream(opts: LlmStreamOptions): ReadableStream<U
   const enc = new TextEncoder();
   let activeController: AbortController | null = null;
   let streamClosed = false;
+  const stage = opts.stage || 'unknown';
+  const inputChars = promptChars(messages);
+  const events: LlmCallEvent[] = [];
+  let attemptIndex = 0;
 
   return new ReadableStream<Uint8Array>({
     async start(controller) {
@@ -253,6 +275,13 @@ export function callLlmReasoningStream(opts: LlmStreamOptions): ReadableStream<U
         if (streamClosed) return;
         streamClosed = true;
         controller.close();
+      };
+      // Flush AFTER the stream is closed so telemetry latency never delays
+      // the client's terminal event. Token counts are unavailable on the SSE
+      // path — prompt_chars + duration still attribute the spend surface.
+      const closeAndFlush = async () => {
+        closeStream();
+        await flushLlmEvents(events);
       };
 
       for (const providerName of providerOrder) {
@@ -273,6 +302,23 @@ export function callLlmReasoningStream(opts: LlmStreamOptions): ReadableStream<U
         const timeoutId = setTimeout(() => activeController?.abort(), timeoutMs);
         if (clientSignal?.aborted) { clearTimeout(timeoutId); break; }
         clientSignal?.addEventListener('abort', () => activeController?.abort(), { once: true });
+
+        const t0 = Date.now();
+        const fallbackIndex = attemptIndex;
+        attemptIndex += 1;
+        const record = (ok: boolean, reason = '') => {
+          events.push(buildLlmCallEvent({
+            provider: providerName,
+            model: creds.model,
+            stage,
+            ok,
+            durationMs: Date.now() - t0,
+            promptChars: inputChars,
+            maxTokens,
+            fallbackIndex,
+            reason,
+          }));
+        };
 
         let hasContent = false;
         try {
@@ -295,6 +341,7 @@ export function callLlmReasoningStream(opts: LlmStreamOptions): ReadableStream<U
             clearTimeout(timeoutId);
             const errBody = resp.body ? await resp.text().catch(() => '') : '';
             console.warn(`[llm-stream:${providerName}] HTTP ${resp.status} model=${creds.model} body=${errBody.slice(0, 300)}`);
+            record(false, `http_${resp.status}`);
             continue;
           }
 
@@ -328,26 +375,31 @@ export function callLlmReasoningStream(opts: LlmStreamOptions): ReadableStream<U
           clearTimeout(timeoutId);
 
           if (hasContent) {
+            record(true);
             emit({ done: true });
-            closeStream();
+            await closeAndFlush();
             return;
           }
+          record(false, 'empty');
         } catch (err) {
           clearTimeout(timeoutId);
           if (hasContent) {
             // Partial stream — close without done so the client sees it as truncated, not success
-            closeStream();
+            record(false, 'truncated');
+            await closeAndFlush();
             return;
           }
-          if (streamClosed) return;
+          if (streamClosed) { await flushLlmEvents(events); return; }
           console.warn(`[llm-stream:${providerName}] ${(err as Error).message}`);
+          const name = (err as Error).name;
+          record(false, name === 'TimeoutError' || name === 'AbortError' ? 'timeout' : 'fetch_error');
         }
       }
 
       if (!streamClosed) {
         emit({ error: 'llm_unavailable' });
-        closeStream();
       }
+      await closeAndFlush();
     },
     cancel() {
       // Client disconnected — abort the active provider fetch immediately
@@ -384,79 +436,118 @@ export async function callLlm(opts: LlmCallOptions): Promise<LlmCallResult | nul
   }
 
   const providers = resolveProviderChain({ forcedProvider, providerOrder });
+  const stage = opts.stage || 'unknown';
+  const inputChars = promptChars(messages);
+  const events: LlmCallEvent[] = [];
+  let attemptIndex = 0;
 
-  for (const providerName of providers) {
-    const creds = getProviderCredentials(providerName, {
-      model: modelOverrides?.[providerName as LlmProviderName],
-    });
-    if (!creds) {
-      if (forcedProvider) return null;
-      continue;
-    }
-
-    // Health gate: skip provider if endpoint is unreachable
-    if (!(await isProviderAvailable(creds.apiUrl))) {
-      console.warn(`[llm:${providerName}] Offline, skipping`);
-      if (forcedProvider) return null;
-      continue;
-    }
-
-    try {
-      const resp = await fetch(creds.apiUrl, {
-        method: 'POST',
-        headers: { ...creds.headers, 'User-Agent': CHROME_UA },
-        body: JSON.stringify({
-          ...creds.extraBody,
-          model: creds.model,
-          messages,
-          temperature,
-          max_tokens: maxTokens,
-        }),
-        signal: AbortSignal.timeout(timeoutMs),
+  try {
+    for (const providerName of providers) {
+      const creds = getProviderCredentials(providerName, {
+        model: modelOverrides?.[providerName as LlmProviderName],
       });
-
-      if (!resp.ok) {
-        console.warn(`[llm:${providerName}] HTTP ${resp.status}`);
+      if (!creds) {
         if (forcedProvider) return null;
         continue;
       }
 
-      const data = (await resp.json()) as {
-        choices?: Array<{ message?: { content?: string } }>;
-        usage?: { total_tokens?: number };
+      // Health gate: skip provider if endpoint is unreachable
+      if (!(await isProviderAvailable(creds.apiUrl))) {
+        console.warn(`[llm:${providerName}] Offline, skipping`);
+        if (forcedProvider) return null;
+        continue;
+      }
+
+      // Skipped providers (no creds / offline) never sent the prompt, so
+      // only real attempts get an event and advance the fallback index.
+      const t0 = Date.now();
+      const fallbackIndex = attemptIndex;
+      attemptIndex += 1;
+      const record = (ok: boolean, extra: { reason?: string; tokensTotal?: number; tokensPrompt?: number; tokensCompletion?: number } = {}) => {
+        events.push(buildLlmCallEvent({
+          provider: providerName,
+          model: creds.model,
+          stage,
+          ok,
+          durationMs: Date.now() - t0,
+          promptChars: inputChars,
+          maxTokens,
+          fallbackIndex,
+          ...extra,
+        }));
       };
 
-      let content = data.choices?.[0]?.message?.content?.trim() || '';
-      if (!content) {
-        if (forcedProvider) return null;
-        continue;
-      }
+      try {
+        const resp = await fetch(creds.apiUrl, {
+          method: 'POST',
+          headers: { ...creds.headers, 'User-Agent': CHROME_UA },
+          body: JSON.stringify({
+            ...creds.extraBody,
+            model: creds.model,
+            messages,
+            temperature,
+            max_tokens: maxTokens,
+          }),
+          signal: AbortSignal.timeout(timeoutMs),
+        });
 
-      const tokens = data.usage?.total_tokens ?? 0;
-
-      if (shouldStrip) {
-        content = stripThinkingTags(content);
-        if (!content) {
+        if (!resp.ok) {
+          console.warn(`[llm:${providerName}] HTTP ${resp.status}`);
+          record(false, { reason: `http_${resp.status}` });
           if (forcedProvider) return null;
           continue;
         }
-      }
 
-      // Strip markdown code fences (e.g. ```json ... ```) that some models add
-      content = content.replace(/^```(?:\w+)?\s*/m, '').replace(/\s*```\s*$/m, '').trim();
+        const data = (await resp.json()) as {
+          choices?: Array<{ message?: { content?: string } }>;
+          usage?: { total_tokens?: number; prompt_tokens?: number; completion_tokens?: number };
+        };
+        const tokensExtra = {
+          tokensTotal: data.usage?.total_tokens ?? 0,
+          tokensPrompt: data.usage?.prompt_tokens ?? 0,
+          tokensCompletion: data.usage?.completion_tokens ?? 0,
+        };
 
-      if (validate && !validate(content)) {
-        console.warn(`[llm:${providerName}] validate() rejected response, trying next`);
+        let content = data.choices?.[0]?.message?.content?.trim() || '';
+        if (!content) {
+          record(false, { ...tokensExtra, reason: 'empty' });
+          if (forcedProvider) return null;
+          continue;
+        }
+
+        const tokens = data.usage?.total_tokens ?? 0;
+
+        if (shouldStrip) {
+          content = stripThinkingTags(content);
+          if (!content) {
+            record(false, { ...tokensExtra, reason: 'stripped_empty' });
+            if (forcedProvider) return null;
+            continue;
+          }
+        }
+
+        // Strip markdown code fences (e.g. ```json ... ```) that some models add
+        content = content.replace(/^```(?:\w+)?\s*/m, '').replace(/\s*```\s*$/m, '').trim();
+
+        if (validate && !validate(content)) {
+          console.warn(`[llm:${providerName}] validate() rejected response, trying next`);
+          record(false, { ...tokensExtra, reason: 'validate_reject' });
+          if (forcedProvider) return null;
+          continue;
+        }
+
+        record(true, tokensExtra);
+        return { content, model: creds.model, provider: providerName, tokens };
+      } catch (err) {
+        const name = (err as Error).name;
+        console.warn(`[llm:${providerName}] ${(err as Error).message}`);
+        record(false, { reason: name === 'TimeoutError' || name === 'AbortError' ? 'timeout' : 'fetch_error' });
         if (forcedProvider) return null;
-        continue;
       }
-
-      return { content, model: creds.model, provider: providerName, tokens };
-    } catch (err) {
-      console.warn(`[llm:${providerName}] ${(err as Error).message}`);
-      if (forcedProvider) return null;
     }
-  }
 
-  return null;
+    return null;
+  } finally {
+    await flushLlmEvents(events);
+  }
 }
