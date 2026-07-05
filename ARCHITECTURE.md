@@ -372,6 +372,9 @@ Runs before every `git push`:
 | `build-desktop.yml` | Release tag, push, manual | Multi-platform Tauri build, code signing (macOS), AppImage library stripping (Linux), smoke test |
 | `docker-publish.yml` | Release, manual | Multi-arch image (amd64, arm64) pushed to GHCR |
 | `publish-cli.yml` | `cli-v*` tag, manual | Tests and publishes the `worldmonitor` npm CLI (`cli/`) via OIDC trusted publishing (no token) with provenance |
+| `publish-python.yml` | `py-v*` tag, manual | Tests and publishes the `worldmonitor-sdk` PyPI package (`sdk/python/`) via OIDC trusted publishing (no token) with attestations |
+| `publish-ruby.yml` | `gem-v*` tag, manual | Tests and publishes the `worldmonitor` gem (`sdk/ruby/`) via RubyGems OIDC trusted publishing (no token) |
+| `publish-go.yml` | `sdk/go/v*` tag, manual | Vets/tests the Go SDK module (`sdk/go/`) at the tag and warms proxy.golang.org so the version is go-gettable and indexed on pkg.go.dev |
 | `test-linux-app.yml` | Manual | Linux AppImage build + headless smoke test with screenshot verification |
 
 **Source files**: `.github/workflows/`, `.husky/pre-push`. The workflow list is CI-checked against `.github/workflows/*.yml` by `npm run docs:check` — a new workflow file must be added to this table.

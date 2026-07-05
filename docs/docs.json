@@ -188,6 +188,7 @@
               "agent-discovery",
               "mcp-quickstart",
               "cli",
+              "sdks",
               "mcp-overview",
               "mcp-tools-reference",
               "mcp-jmespath",
