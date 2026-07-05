@@ -21,6 +21,7 @@ const MIRRORED_FILES = [
   'geography.js',
   'iso2-to-region.json',
   'iso3-to-iso2.json',
+  'story-identity.js',
   'un-to-iso2.json',
 ];
 

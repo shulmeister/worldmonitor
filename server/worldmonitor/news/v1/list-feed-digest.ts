@@ -14,6 +14,7 @@ import { sha256Hex } from '../../../_shared/hash';
 import { CHROME_UA } from '../../../_shared/constants';
 import { VARIANT_FEEDS, INTEL_SOURCES, type ServerFeed } from './_feeds';
 import { classifyByKeyword, hasHistoricalMarker, type ThreatLevel } from './_classifier';
+import { assignStoryIdentity } from './dedup.mjs';
 import { classifyOpinion } from '../../../_shared/opinion-classifier.js';
 import { classifyFeelGood } from '../../../_shared/feelgood-classifier.js';
 import { classifyEphemeralLiveCoverage } from '../../../../shared/ephemeral-live-classifier.js';
@@ -1243,20 +1244,29 @@ async function buildDigest(variant: string, lang: string): Promise<ListFeedDiges
     // Flatten ALL items before any truncation so cross-category corroboration is counted.
     const allItems = [...results.values()].flat();
 
-    // Compute sha256 title hashes and build corroboration map in one pass.
-    // Hashes are stored on each item for reuse as Redis story-tracking keys.
-    const corroborationMap = new Map<string, Set<string>>();
+    // #4919: fuzzy story identity. Items are clustered by the shared
+    // story-identity similarity (edit-tolerant: suffixes, truncations,
+    // qualifier swaps, reorders, morphology) and every cluster member
+    // shares one canonical titleHash + a cluster-wide corroboration
+    // count. The previous exact sha256(normalizeTitle) identity forked a
+    // story on ANY wording edit, so corroboration only counted verbatim
+    // wire syndication — deflating importanceScore's corroboration
+    // signal and the BREAKING/DEVELOPING phase tracker. Singleton
+    // clusters hash exactly as before, so story:track keys for
+    // uncorroborated stories are unchanged.
+    const identityByItem = await assignStoryIdentity(allItems, normalizeTitle, sha256Hex);
     await Promise.all(allItems.map(async (item) => {
-      const hash = await sha256Hex(normalizeTitle(item.title));
-      item.titleHash = hash;
-      const sources = corroborationMap.get(hash) ?? new Set<string>();
-      sources.add(item.source);
-      corroborationMap.set(hash, sources);
+      const identity = identityByItem.get(item);
+      if (identity) {
+        item.titleHash = identity.titleHash;
+        item.corroborationCount = identity.corroborationCount;
+      } else {
+        // Defensive: assignStoryIdentity covers every input by
+        // construction; degrade to the pre-#4919 exact identity if not.
+        item.titleHash = await sha256Hex(normalizeTitle(item.title));
+        item.corroborationCount = 1;
+      }
     }));
-
-    for (const item of allItems) {
-      item.corroborationCount = corroborationMap.get(item.titleHash!)?.size ?? 1;
-    }
 
     // Enrich ALL items with the AI classification cache BEFORE scoring so that
     // importanceScore uses the final (post-LLM) threat level, and truncation
@@ -1342,7 +1352,8 @@ async function buildDigest(variant: string, lang: string): Promise<ListFeedDiges
       categories[category] = {
         items: sliced.map((item) => {
           const hash = item.titleHash!;
-          const sourceCount = corroborationMap.get(hash)?.size ?? 1;
+          // #4919: cluster-wide source count assigned by assignStoryIdentity.
+          const sourceCount = item.corroborationCount ?? 1;
           const stale = storyTracks.get(hash);
           // Merge stale state + this cycle's HINCRBY to get the current mentionCount.
           // New stories (stale = undefined) start at mentionCount=1 this cycle.
