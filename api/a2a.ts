@@ -13,9 +13,13 @@
 // objects are ever created, so capabilities.streaming/pushNotifications
 // stay false and tasks/* methods answer TaskNotFound.
 
-import { TOOL_REGISTRY } from './mcp/registry/index';
+import { suggestTools } from './_agent-tool-suggest';
 import { PUBLIC_RESOURCE_REGISTRY } from './mcp/resources/index';
 import { ENDPOINT_RATE_POLICIES, checkScopedRateLimit, getClientIp } from '../server/_shared/rate-limit';
+
+// Re-exported so existing consumers (tests, api/ask.ts historically) keep a
+// stable import surface; the implementation lives in the route-less helper.
+export { suggestTools, type ToolSuggestion } from './_agent-tool-suggest';
 
 export const config = { runtime: 'edge' };
 
@@ -70,55 +74,6 @@ function rpcResult(id: JsonRpcId, result: unknown): Response {
     status: 200,
     headers: BASE_HEADERS,
   });
-}
-
-// ---------------------------------------------------------------------------
-// route-to-tool: keyword scoring over the live tool catalog
-// ---------------------------------------------------------------------------
-// Deliberately not NLU — a transparent token-overlap score over the same
-// names + descriptions tools/list publishes. Name hits outweigh description
-// hits so "chokepoint status" lands on get_chokepoint_status, not on every
-// tool whose prose mentions shipping.
-
-const QUERY_STOPWORDS = new Set([
-  'the', 'and', 'for', 'with', 'what', 'which', 'who', 'how', 'where', 'when',
-  'need', 'want', 'give', 'gives', 'get', 'show', 'find', 'tool', 'tools',
-  'data', 'live', 'about', 'from', 'that', 'this', 'can', 'you', 'your',
-  'right', 'now', 'best', 'please', 'worldmonitor', 'world', 'monitor',
-]);
-
-function tokenize(text: string): string[] {
-  return [
-    ...new Set(
-      text
-        .toLowerCase()
-        .split(/[^a-z0-9]+/)
-        .filter((t) => t.length >= 3 && !QUERY_STOPWORDS.has(t)),
-    ),
-  ];
-}
-
-export interface ToolSuggestion {
-  name: string;
-  description: string;
-  score: number;
-}
-
-export function suggestTools(query: string, limit = 5): ToolSuggestion[] {
-  const tokens = tokenize(query);
-  if (tokens.length === 0) return [];
-  const scored: ToolSuggestion[] = [];
-  for (const tool of TOOL_REGISTRY) {
-    const nameTokens = new Set(tool.name.toLowerCase().split(/[^a-z0-9]+/));
-    const descTokens = new Set(tokenize(tool.description));
-    let score = 0;
-    for (const token of tokens) {
-      if (nameTokens.has(token)) score += 3;
-      else if (descTokens.has(token)) score += 1;
-    }
-    if (score > 0) scored.push({ name: tool.name, description: tool.description, score });
-  }
-  return scored.sort((a, b) => b.score - a.score || a.name.localeCompare(b.name)).slice(0, limit);
 }
 
 // Deliberately narrow: "current"/"latest" appear in ordinary data queries
@@ -309,6 +264,8 @@ export default async function handler(req: Request): Promise<Response> {
         message: 'No authenticated extended card is configured; the public card at /.well-known/agent-card.json is complete.',
       });
     default:
-      return rpcError(id, { code: -32601, message: `Method not found: '${rpc.method}'.` });
+      // Cap the echoed method name — an arbitrarily long one would otherwise
+      // be reflected into every default-branch response body (Greptile #4824).
+      return rpcError(id, { code: -32601, message: `Method not found: '${rpc.method.slice(0, 100)}'.` });
   }
 }

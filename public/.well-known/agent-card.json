@@ -18,7 +18,7 @@
   },
   "supportsAuthenticatedExtendedCard": false,
   "defaultInputModes": ["text/plain"],
-  "defaultOutputModes": ["application/json"],
+  "defaultOutputModes": ["text/plain", "application/json"],
   "skills": [
     {
       "id": "route-to-tool",

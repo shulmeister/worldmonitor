@@ -12,7 +12,7 @@
 // Accept: text/event-stream) emits SSE with the NLWeb event types
 // start → result (one per item) → complete.
 
-import { suggestTools } from './a2a';
+import { suggestTools } from './_agent-tool-suggest';
 import { ENDPOINT_RATE_POLICIES, checkScopedRateLimit, getClientIp } from '../server/_shared/rate-limit';
 
 export const config = { runtime: 'edge' };
