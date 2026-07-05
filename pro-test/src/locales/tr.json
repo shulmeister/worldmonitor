@@ -178,7 +178,7 @@
     "apiTier": "API SEVİYESİ",
     "title": "Programatik istihbarat",
     "subtitle": "World Monitor verileri üzerine inşa eden geliştiriciler, analistler ve ekipler için. Pro'dan ayrı — ikisini veya birini kullanın.",
-    "restApi": "30+ hizmet alanı için REST API",
+    "restApi": "30+ hizmet alanı için REST API — JavaScript, Python, Ruby ve Go için resmî SDK'lar",
     "authenticated": "Anahtar başına kimlik doğrulamalı, seviye başına rate-limited",
     "structured": "Cache header'ları ve OpenAPI 3.1 dökümantasyonu ile yapılandırılmış JSON",
     "starter": "Starter",
@@ -374,14 +374,14 @@
           "Günlük pazar özeti",
           "Askeri ve jeopolitik izleme",
           "Özel widget oluşturucu",
-          "Claude Desktop ve diğer AI istemcileri için MCP erişimi (50 çağrı/gün)",
+          "Claude Desktop ve diğer AI istemcileri için MCP + SDK erişimi (50 çağrı/gün)",
           "Öncelikli veri yenileme"
         ]
       },
       "api": {
         "description": "İstihbarat verilerine programlı erişim",
         "features": [
-          "REST API erişimi",
+          "REST API + resmî SDK'lar (npm, PyPI, RubyGems, Go)",
           "Gerçek zamanlı veri akışları",
           "Dakikada 60 istek",
           "Günde 1.000 istek dahil",

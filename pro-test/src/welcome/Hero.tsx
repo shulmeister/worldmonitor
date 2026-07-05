@@ -153,6 +153,11 @@ export const Hero = () => (
         >
           <Github className="w-3.5 h-3.5" aria-hidden="true" /> {t('welcome.hero.trustOpenSource')}
         </a>
+        <span aria-hidden="true" className="text-wm-border">|</span>
+        {/* Builder self-identification cue — surface names stay untranslated. */}
+        <a href="#agents" className="hover:text-wm-text transition-colors">
+          <span className="text-wm-green">{t('welcome.hero.trustBuild')}</span> REST API · MCP · npm · PyPI · Go · RubyGems
+        </a>
       </motion.div>
     </div>
     <ConsoleFrame />
