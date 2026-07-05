@@ -20,8 +20,10 @@
 //   - `callLlm` is dependency-injected so unit tests can exercise the full
 //     prompt + parser without network.
 
+import { createHash } from 'node:crypto';
+
 import { extractFirstJsonObject, cleanJsonText } from '../_llm-json.mjs';
-import { withRetry, httpRetryError, createLlmBudgetError, isLlmBudgetError } from '../_seed-utils.mjs';
+import { withRetry, httpRetryError, createLlmBudgetError, isLlmBudgetError, getRedisCredentials } from '../_seed-utils.mjs';
 
 const CHROME_UA = 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
 
@@ -404,11 +406,28 @@ export async function generateRegionalNarrative(region, snapshot, evidence, opts
   }
 
   const callLlm = opts.callLlm ?? callLlmDefault;
+  const cache = opts.cache ?? defaultNarrativeCache();
   // Slice evidence once so the prompt and the parser's whitelist agree on
   // exactly which IDs are citable. See selectPromptEvidence docstring.
   const promptEvidence = selectPromptEvidence(evidence);
   const prompt = buildNarrativePrompt(region, snapshot, promptEvidence);
   const validEvidenceIds = promptEvidence.map((e) => e.id);
+
+  // Prompt-hash cache (#4896 item 1): the LLM call used to fire before any
+  // content-identity check, so byte-identical world state regenerated the
+  // same ~900-token narrative every 6h run, and same-15min-bucket re-runs
+  // burned it just for persistSnapshot's dedup to discard the result. The
+  // prompt's only volatile input is a day-granular date, so identical world
+  // state within a day hashes to the same key.
+  const promptText = typeof prompt === 'string' ? prompt : JSON.stringify(prompt);
+  const cacheKey = `${NARRATIVE_CACHE_PREFIX}${region.id}:${createHash('sha256').update(promptText).digest('hex').slice(0, 16)}`;
+  try {
+    const hit = await cache.get(cacheKey);
+    if (hit && typeof hit === 'object' && hit.narrative && typeof hit.narrative === 'object') {
+      console.log(`[narrative] ${region.id}: prompt-hash cache hit, skipping LLM`);
+      return { narrative: hit.narrative, provider: 'cache', model: typeof hit.model === 'string' ? hit.model : '' };
+    }
+  } catch { /* cache is best-effort — fall through to live generation */ }
 
   // Validator for the default provider-chain caller: a response is
   // acceptable iff parseNarrativeJson returns valid=true against the
@@ -435,5 +454,40 @@ export async function generateRegionalNarrative(region, snapshot, evidence, opts
     return { narrative: emptyNarrative(), provider: '', model: '' };
   }
 
+  // Only VALID parsed narratives feed the cache — an empty/garbage response
+  // must never be pinned for the TTL.
+  try {
+    await cache.set(cacheKey, { narrative, model: result.model }, NARRATIVE_CACHE_TTL_SEC);
+  } catch { /* cache write failures don't matter */ }
+
   return { narrative, provider: result.provider, model: result.model };
+}
+
+// ── Prompt-hash narrative cache plumbing (#4896 item 1) ────────────────────
+
+const NARRATIVE_CACHE_PREFIX = 'intelligence:narrative-cache:v1:';
+const NARRATIVE_CACHE_TTL_SEC = 86_400;
+
+function defaultNarrativeCache() {
+  return {
+    async get(key) {
+      const { url, token } = getRedisCredentials();
+      const resp = await fetch(`${url}/get/${encodeURIComponent(key)}`, {
+        headers: { Authorization: `Bearer ${token}` },
+        signal: AbortSignal.timeout(3_000),
+      });
+      if (!resp.ok) return null;
+      const data = await resp.json();
+      return data?.result ? JSON.parse(data.result) : null;
+    },
+    async set(key, value, ttlSeconds) {
+      const { url, token } = getRedisCredentials();
+      await fetch(url, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify(['SET', key, JSON.stringify(value), 'EX', String(ttlSeconds)]),
+        signal: AbortSignal.timeout(3_000),
+      });
+    },
+  };
 }
