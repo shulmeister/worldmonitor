@@ -249,6 +249,11 @@ export default async function handler(req: Request): Promise<Response> {
   }
 
   const ip = getClientIp(req);
+  // Redis-degraded scoped limits intentionally stay availability-first here:
+  // this surface is anonymous, quota-free, and cheap (pure token matching
+  // over the public tool catalog; the freshness read itself degrades to a
+  // null envelope when Redis is down, so there is no amplification to
+  // protect). checkScopedRateLimit logs/Sentry-captures the degraded path.
   const scoped = await checkScopedRateLimit(RATE_LIMIT_SCOPE, RATE_LIMIT_MAX, RATE_LIMIT_WINDOW, ip);
   if (!scoped.allowed) {
     const retryAfter = Math.max(1, Math.ceil((scoped.reset - Date.now()) / 1000));
