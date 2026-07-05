@@ -116,6 +116,20 @@ const BASELINE_TYPE_EXAMPLE_ID = (() => {
 // operation.
 function overrideStringExample(key, context = {}) {
   if (key === 'jmespath') return 'keys(@)';
+  // RunScenario's async-job envelope (202 Accepted, see
+  // openapi-inject-async-jobs.mjs): status is ALWAYS "pending" at enqueue
+  // time, and statusUrl is the server-computed GetScenarioStatus poll URL —
+  // the heuristic defaults ('example' / a generic https URL) contradict the
+  // fields' own descriptions. The statusUrl value must mirror the Location
+  // header example in openapi-inject-async-jobs.mjs (contract-tested).
+  if (key === 'status' || key === 'statusurl') {
+    const where = `${context.operationId ?? ''} ${context.path ?? ''}`.toLowerCase();
+    if (where.includes('runscenario') || where.includes('run-scenario')) {
+      return key === 'status'
+        ? 'pending'
+        : '/api/scenario/v1/get-scenario-status?jobId=scenario%3A1717200000000%3Aabcd1234';
+    }
+  }
   if (key.includes('hs2')) return '27';
   if (key === 'provider') {
     const where = (String(context.operationId ?? '') + ' ' + String(context.path ?? '')).toLowerCase();

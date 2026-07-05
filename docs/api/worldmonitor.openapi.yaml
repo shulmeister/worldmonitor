@@ -12557,6 +12557,9 @@ paths:
             summary: RunScenario
             description: |-
                 RunScenario enqueues a scenario job on scenario-queue:pending. PRO-gated.
+                 Async job pattern: a successful enqueue returns HTTP 202 Accepted with a
+                 Location header pointing at GetScenarioStatus; poll it (or the statusUrl
+                 body field) with the returned jobId until status is "done" or "failed".
                  The scenario-worker (scripts/scenario-worker.mjs) pulls jobs off the
                  queue via BLMOVE and writes results under scenario-result:{job_id}. Requires entitlement tier >= 1.
             operationId: RunScenario
@@ -12574,8 +12577,8 @@ paths:
                             $ref: '#/components/schemas/worldmonitor_scenario_v1_RunScenarioRequest'
                 required: true
             responses:
-                "200":
-                    description: Successful response
+                "202":
+                    description: Accepted — scenario job enqueued. The body carries the job id (jobId), the initial status (always pending) and a poll URL (statusUrl); the Location header points at the same GetScenarioStatus endpoint. Poll it until status is done or failed.
                     headers:
                         Idempotency-Key:
                             schema:
@@ -12585,12 +12588,17 @@ paths:
                             schema:
                                 type: boolean
                             description: true when this response was replayed from an earlier request with the same key, false on the first (original) request. Present only when the client opted into idempotency.
+                        Location:
+                            schema:
+                                type: string
+                            description: Relative URL of the job-status poll endpoint for this job (same value as the statusUrl body field).
+                            example: "/api/scenario/v1/get-scenario-status?jobId=scenario%3A1717200000000%3Aabcd1234"
                     content:
                         application/json:
                             example:
                                 "jobId": "scenario:1717200000000:abcd1234"
-                                "status": "example"
-                                "statusUrl": "https://example.com/worldmonitor"
+                                "status": "pending"
+                                "statusUrl": "/api/scenario/v1/get-scenario-status?jobId=scenario%3A1717200000000%3Aabcd1234"
                             schema:
                                 $ref: '#/components/schemas/worldmonitor_scenario_v1_RunScenarioResponse'
                 "400":
@@ -27862,13 +27870,14 @@ components:
                 RunScenarioResponse carries the enqueued job id. Clients poll
                  GetScenarioStatus with this id until status != "pending".
 
-                 NOTE: the legacy (pre-sebuf) endpoint returned HTTP 202 Accepted on
-                 enqueue; the sebuf-generated server emits 200 OK for all successful
-                 responses (no per-RPC status-code configuration is available in the
-                 current sebuf HTTP annotations). The 202 → 200 shift on a same-version
-                 (v1 → v1) migration is called out in docs/api-scenarios.mdx and the
-                 OpenAPI bundle; external consumers keying off `response.status === 202`
-                 need to branch on response body shape instead.
+                 NOTE: a successful enqueue returns HTTP 202 Accepted with a Location
+                 header pointing at GetScenarioStatus — the legacy (pre-sebuf) contract,
+                 restored. The sebuf-generated server still emits 200 for every success
+                 (no per-RPC status-code annotation exists), so the gateway upgrades the
+                 status via the setSuccessStatusOverride side-channel
+                 (server/_shared/response-headers.ts). Treat any 2xx as success; the
+                 interim guidance to branch on response body shape instead of the status
+                 code remains valid.
         worldmonitor_scenario_v1_GetScenarioStatusRequest:
             type: object
             properties:
