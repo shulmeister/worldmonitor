@@ -151,7 +151,7 @@ describe('Product catalog freshness', () => {
     const expectedFeature = tiersJson.find((tier) => tier.localeKey === 'pro')?.features?.find((f) => /\bMCP\b/.test(f));
     assert.equal(
       expectedFeature,
-      'MCP access for Claude Desktop & other AI clients (50 calls/day)',
+      'MCP + SDK access for Claude Desktop & other AI clients (50 calls/day)',
       'generated Pro MCP feature changed; update fallback catalog copy and this assertion together',
     );
 

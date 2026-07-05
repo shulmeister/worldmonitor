@@ -161,7 +161,7 @@ export const PRODUCT_CATALOG: Record<string, CatalogEntry> = {
       "Daily market briefs",
       "Military & geopolitical tracking",
       "Custom widget builder",
-      "MCP access for Claude Desktop & other AI clients (50 calls/day)",
+      "MCP + SDK access for Claude Desktop & other AI clients (50 calls/day)",
       "Priority data refresh",
     ],
     selfServe: true,
@@ -194,7 +194,7 @@ export const PRODUCT_CATALOG: Record<string, CatalogEntry> = {
     tierGroup: "api_starter",
     features: API_STARTER_FEATURES,
     marketingFeatures: [
-      "REST API access",
+      "REST API + official SDKs (npm, PyPI, RubyGems, Go)",
       "Real-time data streams",
       "60 requests/minute",
       "1,000 requests/day included",
