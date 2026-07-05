@@ -103,8 +103,11 @@ describe('summarization.ts wiring (source-grep — module not loadable under nod
   });
 
   it('a server 403 suppresses the provider chain (entitlement drift must not recreate the flood)', () => {
-    assert.match(src, /statusCode === 403/, 'must branch on 403 explicitly');
-    const branch = src.slice(src.indexOf('statusCode === 403'));
+    // Duck-typed status check: a value import of the generated client's
+    // ApiError would pull the RPC client chunk into the main static graph
+    // and fail the eager-chunk budget (caught on PR #4915's first CI run).
+    assert.match(src, /getRpcErrorStatusCode\(error\) === 403/, 'must branch on 403 explicitly via the duck-typed helper');
+    const branch = src.slice(src.indexOf('getRpcErrorStatusCode(error) === 403'));
     assert.ok(
       branch.indexOf('suppressServerSummarization()') > -1,
       '403 branch must call suppressServerSummarization()',

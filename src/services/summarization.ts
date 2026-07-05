@@ -8,13 +8,13 @@
  */
 
 import { mlWorker } from './ml-worker';
-import { getRpcBaseUrl } from '@/services/rpc-client';
+import { getRpcBaseUrl, getRpcErrorStatusCode } from '@/services/rpc-client';
 import { SITE_VARIANT } from '@/config';
 import { BETA_MODE } from '@/config/beta';
 import { isFeatureAvailable, type RuntimeFeatureId } from './runtime-config';
 import { trackLLMUsage, trackLLMFailure } from './analytics';
 import { getCurrentLanguage } from './i18n';
-import { ApiError, type SummarizeArticleResponse } from '@/generated/client/worldmonitor/news/v1/service_client';
+import type { SummarizeArticleResponse } from '@/generated/client/worldmonitor/news/v1/service_client';
 import { createCircuitBreaker } from '@/utils';
 import { buildSummaryCacheKey } from '@/utils/summary-cache-key';
 import { NewsServiceClient } from '@/services/generated-rpc-clients';
@@ -123,7 +123,10 @@ async function tryApiProvider(
         // Entitlement drift: probe said entitled, server said no. Suppress
         // the whole provider chain for a window so drift can't recreate the
         // flood at news-refresh rate; the breaker still counts the failure.
-        if (error instanceof ApiError && error.statusCode === 403) {
+        // Duck-typed via getRpcErrorStatusCode — a value import of the
+        // generated client's ApiError would pull the RPC client chunk into
+        // the main static graph (eager-chunk budget).
+        if (getRpcErrorStatusCode(error) === 403) {
           suppressServerSummarization();
         }
         throw error;
