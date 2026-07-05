@@ -35,7 +35,7 @@ import (
 
 // Version of this SDK. The release workflow checks it against the
 // sdk/go/vX.Y.Z tag before warming the module proxy.
-const Version = "0.1.0"
+const Version = "0.1.1"
 
 // UserAgent identifies the SDK on every request. Cloudflare's WAF challenges
 // generic library User-Agents (Go-http-client, curl, empty) on the API edge,
