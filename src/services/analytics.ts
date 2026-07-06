@@ -132,6 +132,13 @@ function sendUmamiCall(call: QueuedUmamiCall): boolean {
     } else {
       umami.identify(call.data);
     }
+    // Durable-delivery contract for the terminal funnel event (#4934
+    // round-2 F2): the marker written by trackCheckoutSuccess is cleared
+    // only once the event actually reached the tracker, so a page reload
+    // that races the deferred queue replays instead of dropping it.
+    if (call.kind === 'track' && call.event === 'checkout-success') {
+      clearPendingCheckoutSuccessMarker();
+    }
     return true;
   } catch {
     return false;
@@ -438,17 +445,69 @@ export function trackCheckoutStart(
 }
 
 /**
+ * The one funnel event that races a reload: checkout-success is tracked on
+ * the post-checkout dashboard load, but the entitlement watcher reloads the
+ * page the moment Pro lands — often before the deferred Umami queue flushes
+ * (#4934 round-2 F2). A sessionStorage marker written at track time and
+ * cleared only on actual delivery (see sendUmamiCall) lets the next boot
+ * replay the event instead of dropping it. sessionStorage is per-tab, so
+ * the replay can't leak across tabs or users.
+ */
+const CHECKOUT_SUCCESS_PENDING_KEY = 'wm-checkout-success-pending';
+
+function clearPendingCheckoutSuccessMarker(): void {
+  try {
+    window.sessionStorage.removeItem(CHECKOUT_SUCCESS_PENDING_KEY);
+  } catch {
+    // Storage unavailable — replay just won't be possible, same as before.
+  }
+}
+
+/**
  * Fired on the dashboard when a checkout return reconciles as success.
  * `source` distinguishes the full-page return-URL path from the legacy
  * overlay session-flag path (see panel-layout.ts checkout-return wiring).
  */
 export function trackCheckoutSuccess(source: 'url-return' | 'overlay-flag'): void {
+  try {
+    window.sessionStorage.setItem(CHECKOUT_SUCCESS_PENDING_KEY, source);
+  } catch {
+    // Storage denied — fall back to fire-and-hope, matching every other event.
+  }
   track('checkout-success', { source });
 }
 
+/**
+ * Re-queue a checkout-success whose delivery was cut off by the entitlement
+ * reload. Called on every non-checkout-return boot (panel-layout); a no-op
+ * unless the durable marker survived. Deliberately does NOT rewrite the
+ * marker: it stays until sendUmamiCall confirms delivery, so repeated
+ * reloads keep replaying rather than dropping.
+ */
+export function replayPendingCheckoutSuccess(): void {
+  let source: string | null = null;
+  try {
+    source = window.sessionStorage.getItem(CHECKOUT_SUCCESS_PENDING_KEY);
+  } catch {
+    return;
+  }
+  if (!source) return;
+  track('checkout-success', { source, replayed: true });
+}
+
+/**
+ * Closed status vocabulary for checkout-failed (#4934 round-2 F3). The raw
+ * value is URL-derived (Dodo return params — and checkout-return.ts:117
+ * forwards ANY unknown status when Dodo ID params are present), so a
+ * crafted or novel URL must not inject unbounded cardinality into
+ * analytics. Unknowns collapse to 'other'.
+ */
+const CHECKOUT_FAILED_STATUSES = new Set(['failed', 'declined', 'cancelled', 'canceled']);
+
 /** Fired when a checkout return reconciles as failed/declined/cancelled. */
 export function trackCheckoutFailed(rawStatus: string): void {
-  track('checkout-failed', { status: rawStatus });
+  const status = CHECKOUT_FAILED_STATUSES.has(rawStatus) ? rawStatus : 'other';
+  track('checkout-failed', { status });
 }
 
 // ---------------------------------------------------------------------------

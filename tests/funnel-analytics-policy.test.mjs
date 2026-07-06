@@ -72,8 +72,41 @@ test('/pro and welcome pages load the Umami tracker (www + nonce)', () => {
 
 test('/pro checkout service fires checkout-start on both paths', () => {
   const src = read('pro-test/src/services/checkout.ts');
-  assert.ok(src.includes("surface: 'pro-page'"),
-    'pro-page checkout-start missing from startCheckout');
-  assert.ok(src.includes("surface: 'pro-resume'"),
-    'pro-resume checkout-start missing from tryResumeCheckoutFromUrl');
+  // Round-2 F4 (Greptile): asserting only the surface labels would still
+  // pass if the trackFunnelEvent calls were deleted around them. Extract
+  // the actual checkout-start emissions and check each surface is wired
+  // to one.
+  const emissions = src.match(/trackFunnelEvent\(\s*'checkout-start'[\s\S]{0,220}?\)/g) ?? [];
+  assert.ok(emissions.some((call) => call.includes("'pro-page'")),
+    "no trackFunnelEvent('checkout-start', …surface:'pro-page') emission in startCheckout");
+  assert.ok(emissions.some((call) => call.includes("'pro-resume'")),
+    "no trackFunnelEvent('checkout-start', …surface:'pro-resume') emission in tryResumeCheckoutFromUrl");
+});
+
+test('tracker tags are async and the pro SPA excludes query strings', () => {
+  for (const page of ['pro-test/index.html', 'pro-test/welcome.html']) {
+    const tag = read(page).match(/<script[^>]+abacus\.worldmonitor\.app\/script\.js[^>]*>/)[0];
+    assert.ok(/\basync\b/.test(tag),
+      `${page}: tracker must be async — a plain defer script delays DOMContentLoaded behind the analytics host`);
+  }
+  const proTag = read('pro-test/index.html').match(/<script[^>]+abacus[^>]*>/)[0];
+  assert.ok(proTag.includes('data-exclude-search="true"'),
+    'pro-test/index.html: data-exclude-search missing — checkout-intent (wm_checkout_*) and Clerk handshake params would land in analytics');
+});
+
+test('checkout-success is durable across the entitlement reload', () => {
+  const analytics = read('src/services/analytics.ts');
+  assert.ok(analytics.includes('sessionStorage.setItem(CHECKOUT_SUCCESS_PENDING_KEY'),
+    'trackCheckoutSuccess no longer writes the durable marker');
+  assert.ok(analytics.includes('clearPendingCheckoutSuccessMarker()'),
+    'delivery-time marker clear missing from sendUmamiCall');
+  const layout = read('src/app/panel-layout.ts');
+  assert.ok(layout.includes('replayPendingCheckoutSuccess()'),
+    'panel-layout boot no longer replays a pending checkout-success');
+});
+
+test('checkout-failed status is bucketed to a closed vocabulary', () => {
+  const analytics = read('src/services/analytics.ts');
+  assert.ok(analytics.includes('CHECKOUT_FAILED_STATUSES.has(rawStatus)'),
+    'trackCheckoutFailed no longer normalizes the URL-derived status — unbounded cardinality');
 });

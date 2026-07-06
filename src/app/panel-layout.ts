@@ -40,7 +40,7 @@ import { resolveNewsCategories, enabledNewsCategoryKeys } from '@/config/feed-re
 import { BETA_MODE } from '@/config/beta';
 import { t } from '@/services/i18n';
 import { getCurrentTheme } from '@/utils';
-import { trackCriticalBannerAction, trackCheckoutSuccess, trackCheckoutFailed } from '@/services/analytics';
+import { trackCriticalBannerAction, trackCheckoutSuccess, trackCheckoutFailed, replayPendingCheckoutSuccess } from '@/services/analytics';
 import { getStoredMapModePreference } from '@/services/map-mode-preference';
 import { loadWidgets, saveWidget, isProUser } from '@/services/widget-store';
 import type { CustomWidgetSpec } from '@/services/widget-store';
@@ -299,6 +299,14 @@ export class PanelLayoutManager implements AppModule {
     } else if (returnResult.kind === 'failed') {
       trackCheckoutFailed(returnResult.rawStatus);
       showCheckoutFailureBanner(returnResult.rawStatus);
+    }
+    if (!returnedFromCheckout) {
+      // #4934 round-2 F2: the entitlement watcher reloads the page the
+      // moment Pro lands — often before the deferred Umami queue flushes,
+      // which would silently drop the terminal checkout-success event.
+      // This boot-time replay re-queues it from the durable marker the
+      // pre-reload track left behind (no-op on ordinary loads).
+      replayPendingCheckoutSuccess();
     }
 
     // Always register the payment-failure-banner listener — onSubscriptionChange
