@@ -2,10 +2,10 @@
 //
 // Substitutes the stubbed `whyMatters` per story and the stubbed
 // executive summary (`digest.lead` / `digest.threads` / `digest.signals`)
-// with Gemini 2.5 Flash output via the existing OpenRouter-backed
-// callLLM chain. The LLM provider is pinned to openrouter by
-// skipProviders:['ollama','groq'] so the brief's editorial voice
-// stays on one model across environments.
+// with DeepSeek V4 Flash output (#4944 U4) via the existing
+// OpenRouter-backed callLLM chain. The LLM provider is pinned to
+// openrouter by skipProviders:['ollama','groq'] so the brief's editorial
+// voice stays on one model across environments.
 //
 // Deliberately:
 //   - Pure parse/build helpers are exported for testing without IO.
@@ -115,11 +115,11 @@ const BRIEF_LLM_SKIP_PROVIDERS = ['ollama', 'groq'];
  *
  * Four-layer graceful degradation:
  *   1. `deps.callAnalystWhyMatters(story)` — the analyst-context edge
- *      endpoint (brief:llm:whymatters:v8 cache lives there). Preferred.
- *   2. Direct read of the endpoint's v8 envelope cache (#4914) — the
+ *      endpoint (brief:llm:whymatters:v9 cache lives there). Preferred.
+ *   2. Direct read of the endpoint's v9 envelope cache (#4914) — the
  *      endpoint CALL can fail while its cached envelope is still valid;
  *      reusing it avoids a paid duplicate generation.
- *   3. Legacy direct-Gemini chain: cacheGet (v5) → callLLM → cacheSet.
+ *   3. Direct OpenRouter-chain fallback: cacheGet (v6) → callLLM → cacheSet.
  *      Runs whenever the analyst call is missing, returns null, or throws.
  *   4. Caller (enrichBriefEnvelopeWithLLM) uses the baseline stub if
  *      this function returns null.
@@ -136,8 +136,8 @@ const BRIEF_LLM_SKIP_PROVIDERS = ['ollama', 'groq'];
  */
 export async function generateWhyMatters(story, deps) {
   // Priority path: analyst endpoint. It owns its own cache and has
-  // ALREADY validated the output via parseWhyMatters (gemini path) or
-  // parseWhyMattersV2 (analyst path, multi-sentence). We must NOT
+  // ALREADY validated the output via parseWhyMatters (stable v1-prompt
+  // path) or parseWhyMattersV2 (analyst path, multi-sentence). We must NOT
   // re-parse here with the single-sentence v1 parser — that silently
   // truncates v2's 2–3-sentence output to the first sentence. Trust
   // the wire shape; only reject an obviously-bad payload (empty, stub
@@ -187,7 +187,8 @@ export async function generateWhyMatters(story, deps) {
     }
   } catch { /* treat as miss */ }
 
-  // Fallback path: legacy direct-Gemini chain with the v4 cache.
+  // Fallback path: direct OpenRouter-chain generation (DeepSeek since
+  // #4944 U4) with its own cache namespace.
   // Bumped v3→v4 on 2026-05-14 alongside the F6 date-grounding line:
   // every v3 row was produced from a buildWhyMattersPrompt prompt with
   // no notion of "today", so a v3 row may state a fabricated year
