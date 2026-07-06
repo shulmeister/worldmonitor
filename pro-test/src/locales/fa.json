@@ -51,6 +51,16 @@
           "Custom data exports"
         ]
       },
+      "apiBusiness": {
+        "description": "High-volume API for teams",
+        "features": [
+          "Everything in API Starter",
+          "300 requests/minute",
+          "10,000 requests/day included",
+          "Priority support",
+          "XLSX exports"
+        ]
+      },
       "enterprise": {
         "description": "Custom solutions for organizations",
         "features": [
