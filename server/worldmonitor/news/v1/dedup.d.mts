@@ -6,4 +6,10 @@ export function assignStoryIdentity<T extends { title: string; source: string; p
   items: T[],
   normalizeTitle: (title: string) => string,
   sha256Hex: (text: string) => Promise<string>,
-): Promise<Map<T, { titleHash: string; corroborationCount: number }>>;
+): Promise<Map<T, { titleHash: string; corroborationCount: number; memberTitleHashes: string[] }>>;
+
+export function adoptExistingCanonical(
+  memberTitleHashes: string[] | undefined,
+  defaultHash: string,
+  aliasTargetByHash: Map<string, string> | Record<string, string> | undefined,
+): string;

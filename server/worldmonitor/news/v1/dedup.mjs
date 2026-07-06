@@ -99,15 +99,58 @@ export async function assignStoryIdentity(items, normalizeTitle, sha256Hex) {
       // no shared phantom track, no pooled corroboration.
       await Promise.all(indices.map(async (i) => {
         const titleHash = await sha256Hex(`untrackable:${items[i].source || ''}:${items[i].title || ''}`);
-        assignment.set(items[i], { titleHash, corroborationCount: 1 });
+        // No alias rows for sentinel identities — they are per-item by design.
+        assignment.set(items[i], { titleHash, corroborationCount: 1, memberTitleHashes: [] });
       }));
       return;
     }
 
     const titleHash = await sha256Hex(canonical);
+    // Unique exact-title hashes of every member — the caller persists
+    // memberHash->canonicalHash alias rows and adopts a live canonical on
+    // later cycles (#4924 review P1: without this, cycle 1 = A+B with A
+    // canonical wrote only A's track; a cycle-2 B-only batch hashed to B
+    // and RESET the story to BREAKING/mentionCount=1 — worse than the old
+    // exact hashing, where B's own track would have continued).
+    const memberNormalized = new Set();
     for (const i of indices) {
-      assignment.set(items[i], { titleHash, corroborationCount });
+      const normalized = normalizeTitle(items[i].title || '');
+      if (normalized) memberNormalized.add(normalized);
+    }
+    const memberTitleHashes = await Promise.all([...memberNormalized].map((n) => sha256Hex(n)));
+    for (const i of indices) {
+      assignment.set(items[i], { titleHash, corroborationCount, memberTitleHashes });
     }
   }));
   return assignment;
+}
+
+/**
+ * Pure canonical-adoption rule (#4924 review P1). Given a cluster's member
+ * exact-title hashes, the batch-derived default canonical hash, and a map of
+ * live alias rows (memberHash -> canonical hash written in a previous
+ * cycle, same TTL as story tracks), return the hash the cluster should
+ * track under: the live canonical most of its members already point at —
+ * so a story keeps its identity when the original canonical member drops
+ * out of the batch. Deterministic: most-common target wins, ties break to
+ * the lexicographically smallest hash. No live alias -> default.
+ */
+export function adoptExistingCanonical(memberTitleHashes, defaultHash, aliasTargetByHash) {
+  const counts = new Map();
+  for (const memberHash of Array.isArray(memberTitleHashes) ? memberTitleHashes : []) {
+    const target = aliasTargetByHash instanceof Map
+      ? aliasTargetByHash.get(memberHash)
+      : aliasTargetByHash?.[memberHash];
+    if (typeof target !== 'string' || target.length === 0) continue;
+    counts.set(target, (counts.get(target) ?? 0) + 1);
+  }
+  let adopted = null;
+  let best = 0;
+  for (const [target, count] of counts) {
+    if (count > best || (count === best && adopted !== null && target < adopted)) {
+      adopted = target;
+      best = count;
+    }
+  }
+  return adopted ?? defaultHash;
 }

@@ -14,7 +14,7 @@ import { sha256Hex } from '../../../_shared/hash';
 import { CHROME_UA } from '../../../_shared/constants';
 import { VARIANT_FEEDS, INTEL_SOURCES, type ServerFeed } from './_feeds';
 import { classifyByKeyword, hasHistoricalMarker, type ThreatLevel } from './_classifier';
-import { assignStoryIdentity } from './dedup.mjs';
+import { assignStoryIdentity, adoptExistingCanonical } from './dedup.mjs';
 import { classifyOpinion } from '../../../_shared/opinion-classifier.js';
 import { classifyFeelGood } from '../../../_shared/feelgood-classifier.js';
 import { classifyEphemeralLiveCoverage } from '../../../../shared/ephemeral-live-classifier.js';
@@ -24,6 +24,7 @@ import {
   STORY_TRACK_KEY,
   STORY_SOURCES_KEY,
   STORY_PEAK_KEY,
+  STORY_ALIAS_KEY,
   DIGEST_ACCUMULATOR_KEY,
   STORY_TTL,
   STORY_TRACK_KEY_PREFIX,
@@ -1110,7 +1111,7 @@ function buildStoryTrackHsetFields(
   ];
 }
 
-async function writeStoryTracking(items: ParsedItem[], variant: string, lang: string, hashes: string[]): Promise<void> {
+async function writeStoryTracking(items: ParsedItem[], variant: string, lang: string, hashes: string[], memberHashesByFinal?: Map<string, Set<string>>): Promise<void> {
   if (items.length === 0) return;
   const now = Date.now();
   const accKey = DIGEST_ACCUMULATOR_KEY(variant, lang);
@@ -1166,15 +1167,26 @@ async function writeStoryTracking(items: ParsedItem[], variant: string, lang: st
           ['HSET', trackKey, ...hsetFields],
           ['HSETNX', trackKey, 'firstSeen', nowStr],
           ['EXPIRE', trackKey, ttl],
-          ['EXPIRE', sourcesKey, ttl],
-          ['EXPIRE', peakKey, ttl],
           ['ZADD', accKey, nowStr, hash],
         );
+        // #4924: alias rows for every member exact-title hash -> the FINAL
+        // (post-adoption) canonical, story-track TTL — next cycle's
+        // adoption source. Includes the canonical's own hash.
+        for (const memberHash of memberHashesByFinal?.get(hash) ?? []) {
+          commands.push(['SET', STORY_ALIAS_KEY(memberHash), hash, 'EX', ttl]);
+        }
       }
 
       commands.push(
         ['ZADD', peakKey, 'GT', score, 'peak'],
         ['SADD', sourcesKey, item.source],
+        // #4924 review P2 (TTL ordering): EXPIRE must follow the SADD/ZADD
+        // that CREATE these keys — EXPIRE on a missing key is a no-op, so
+        // the pre-block ordering left brand-new story:sources/story:peak
+        // keys persistent forever. Idempotent per member; kept adjacent to
+        // the creating writes so no future reorder can reopen the leak.
+        ['EXPIRE', sourcesKey, ttl],
+        ['EXPIRE', peakKey, ttl],
       );
     }
 
@@ -1289,10 +1301,31 @@ async function buildDigest(variant: string, lang: string): Promise<ListFeedDiges
     // clusters hash exactly as before, so story:track keys for
     // uncorroborated stories are unchanged.
     const identityByItem = await assignStoryIdentity(allItems, normalizeTitle, sha256Hex);
+
+    // #4924 review P1: adopt a LIVE canonical before assigning hashes.
+    // Alias rows (memberHash -> canonicalHash, story-track TTL) written by
+    // previous cycles let a cluster keep its story identity when the
+    // member that anchored the canonical drops out of the batch. One
+    // batched read for all member hashes; failures degrade to
+    // batch-derived canonicals (pre-adoption behavior).
+    const allMemberHashes = new Set<string>();
+    for (const identity of identityByItem.values()) {
+      for (const h of identity.memberTitleHashes ?? []) allMemberHashes.add(h);
+    }
+    const aliasTargetByHash = new Map<string, string>();
+    if (allMemberHashes.size > 0) {
+      const aliasHashes = [...allMemberHashes];
+      const aliasResults = await runRedisPipeline(aliasHashes.map((h) => ['GET', STORY_ALIAS_KEY(h)]));
+      for (let i = 0; i < aliasHashes.length; i++) {
+        const target = aliasResults[i]?.result;
+        if (typeof target === 'string' && target.length > 0) aliasTargetByHash.set(aliasHashes[i]!, target);
+      }
+    }
+
     await Promise.all(allItems.map(async (item) => {
       const identity = identityByItem.get(item);
       if (identity) {
-        item.titleHash = identity.titleHash;
+        item.titleHash = adoptExistingCanonical(identity.memberTitleHashes, identity.titleHash, aliasTargetByHash);
         item.corroborationCount = identity.corroborationCount;
       } else {
         // Defensive: assignStoryIdentity covers every input by
@@ -1305,6 +1338,17 @@ async function buildDigest(variant: string, lang: string): Promise<ListFeedDiges
         item.corroborationCount = 1;
       }
     }));
+
+    // Final(post-adoption) hash -> member exact-title hashes, consumed by
+    // writeStoryTracking to persist next cycle's alias rows.
+    const memberHashesByFinal = new Map<string, Set<string>>();
+    for (const item of allItems) {
+      const identity = identityByItem.get(item);
+      if (!identity || !item.titleHash) continue;
+      let set = memberHashesByFinal.get(item.titleHash);
+      if (!set) { set = new Set(); memberHashesByFinal.set(item.titleHash, set); }
+      for (const h of identity.memberTitleHashes ?? []) set.add(h);
+    }
 
     // Enrich ALL items with the AI classification cache BEFORE scoring so that
     // importanceScore uses the final (post-LLM) threat level, and truncation
@@ -1382,7 +1426,7 @@ async function buildDigest(variant: string, lang: string): Promise<ListFeedDiges
     const storyTracks = await readStoryTracks(uniqueHashes).catch(() => new Map<string, StoryTrack>());
 
     // Write story tracking. Errors never fail the digest build.
-    await writeStoryTracking(allSliced, variant, lang, titleHashes).catch((err: unknown) =>
+    await writeStoryTracking(allSliced, variant, lang, titleHashes, memberHashesByFinal).catch((err: unknown) =>
       console.warn('[digest] story tracking write failed:', err),
     );
 

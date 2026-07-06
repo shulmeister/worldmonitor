@@ -398,3 +398,64 @@ describe('hot-bucket mega-story pre-union (#4924 external review)', () => {
     assert.equal(sizes[1], 1);
   });
 });
+
+// ── #4924 external-review round: cross-cycle continuity + TTL ordering ─────
+
+import { adoptExistingCanonical } from '../server/worldmonitor/news/v1/dedup.mjs';
+
+const sha256HexNode = sha256Hex;
+const normalizeBasic = normalizeTitle;
+
+describe('cross-cycle canonical adoption (#4924 external review P1)', () => {
+  it('REGRESSION: two-cycle A+B -> B-only keeps the story identity via alias adoption', async () => {
+    const A = { title: 'Iran threatens to close Strait of Hormuz', source: 'Reuters', publishedAt: 1_000 };
+    const B = { title: 'Iran warns it may close the Strait of Hormuz', source: 'BBC', publishedAt: 2_000 };
+
+    // Cycle 1: A+B cluster; A (earlier publishedAt) anchors the canonical.
+    const cycle1 = await assignStoryIdentity([A, B], normalizeBasic, sha256HexNode);
+    const identity1 = cycle1.get(A);
+    assert.equal(identity1.titleHash, cycle1.get(B).titleHash, 'A and B share one identity in cycle 1');
+    assert.ok(identity1.memberTitleHashes.length >= 2, 'both member hashes exposed for alias persistence');
+
+    // The digest persists memberHash -> canonical alias rows; simulate them.
+    const aliasMap = new Map(identity1.memberTitleHashes.map((h) => [h, identity1.titleHash]));
+
+    // Cycle 2: only B appears — batch-derived canonical would be B itself...
+    const cycle2 = await assignStoryIdentity([{ ...B }], normalizeBasic, sha256HexNode);
+    const identity2 = [...cycle2.values()][0];
+    assert.notEqual(identity2.titleHash, identity1.titleHash, 'without adoption, B forks a fresh identity');
+
+    // ...but adoption re-anchors to the live canonical from cycle 1.
+    const adopted = adoptExistingCanonical(identity2.memberTitleHashes, identity2.titleHash, aliasMap);
+    assert.equal(adopted, identity1.titleHash, 'B-only cycle must continue the cycle-1 story track');
+  });
+
+  it('adoption is deterministic: most-common live target wins, ties break lexicographically', () => {
+    const aliasMap = new Map([['m1', 'hash-b'], ['m2', 'hash-a'], ['m3', 'hash-b']]);
+    assert.equal(adoptExistingCanonical(['m1', 'm2', 'm3'], 'default', aliasMap), 'hash-b');
+    const tied = new Map([['m1', 'hash-b'], ['m2', 'hash-a']]);
+    assert.equal(adoptExistingCanonical(['m1', 'm2'], 'default', tied), 'hash-a', 'tie -> smallest hash');
+    assert.equal(adoptExistingCanonical(['m1'], 'default', new Map()), 'default', 'no live alias -> batch canonical');
+    assert.equal(adoptExistingCanonical(undefined, 'default', aliasMap), 'default');
+  });
+});
+
+describe('story key TTL ordering (#4924 external review P2)', () => {
+  it('EXPIRE for sources/peak keys is queued with the per-member creating writes, never before them', () => {
+    const src = readFileSync(
+      resolve(dirname(fileURLToPath(import.meta.url)), '../server/worldmonitor/news/v1/list-feed-digest.ts'),
+      'utf-8',
+    );
+    const onceBlock = src.slice(src.indexOf("['HINCRBY', trackKey"), src.indexOf("['ZADD', peakKey, 'GT'"));
+    assert.ok(!onceBlock.includes("['EXPIRE', sourcesKey"),
+      'sources EXPIRE must not sit in the once-per-hash pre-block — EXPIRE on a missing key is a no-op and the later SADD creates a persistent key');
+    assert.ok(!onceBlock.includes("['EXPIRE', peakKey"),
+      'peak EXPIRE must not sit in the once-per-hash pre-block');
+    const memberBlock = src.slice(src.indexOf("['ZADD', peakKey, 'GT'"), src.indexOf('runRedisPipeline(commands)'));
+    assert.ok(memberBlock.includes("['EXPIRE', sourcesKey") && memberBlock.includes("['EXPIRE', peakKey"),
+      'both EXPIREs must follow the creating SADD/ZADD in the per-member block');
+    assert.match(src, /STORY_ALIAS_KEY\(memberHash\), hash, 'EX', ttl/, 'alias rows persisted with story TTL');
+    assert.match(src, /adoptExistingCanonical\(identity\.memberTitleHashes, identity\.titleHash, aliasTargetByHash\)/,
+      'digest must adopt live canonicals before assigning hashes');
+  });
+});
