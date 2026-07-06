@@ -413,9 +413,13 @@ export default async function handler(req: Request, ctx?: EdgeContext): Promise<
   // bodies arriving, the editorial voice and named-actor accuracy shift
   // enough that v6 prose had to be invalidated.
   //
+  // v8 → v9 (2026-07-06, #4944 U4): the analyst path's model moved to
+  // DeepSeek (LLM_REASONING_MODEL) — v8 rows carry the old model's voice
+  // and must age out at cutover.
+  //
   // v6 history (kept for reference): category-gated context + prompt-level
-  // RELEVANCE RULE (2026-04-22) — those changes remain in v8.
-  const cacheKey = `brief:llm:whymatters:v8:${hash}`;
+  // RELEVANCE RULE (2026-04-22) — those changes remain in v9.
+  const cacheKey = `brief:llm:whymatters:v9:${hash}`;
   // Shadow v5→v6 for the same reason — a mid-rollout shadow record
   // comparing v7 pre-date-grounding vs gemini is not useful once v8 is live.
   const shadowKey = `brief:llm:whymatters:shadow:v6:${hash}`;

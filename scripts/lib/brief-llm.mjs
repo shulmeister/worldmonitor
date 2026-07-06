@@ -15,12 +15,12 @@
 //     through to the original stub — the brief must always ship.
 //
 // Cache semantics:
-//   - brief:llm:whymatters:v5:{storyHash} — 24h, shared across users
+//   - brief:llm:whymatters:v6:{storyHash} — 24h, shared across users
 //     for the same story. v4 bumped from v3 alongside the F6
 //     date-grounding line: every v3 row was produced from a prompt
 //     with no notion of "today" and may state a fabricated year, so
 //     v3 rows must not survive the deploy. v2 rows were lead-blind.
-//   - brief:llm:digest:v8:{userId|public}:{sensitivity}:{poolHash}
+//   - brief:llm:digest:v9:{userId|public}:{sensitivity}:{poolHash}
 //     — 4h. The canonical synthesis is now ALWAYS produced through
 //     this path (formerly split with `generateAISummary` in the
 //     digest cron). Material includes profile-SHA, greeting bucket,
@@ -97,10 +97,10 @@ const DIGEST_PROSE_TTL_SEC = 4 * 60 * 60;
 const STORY_DESCRIPTION_TTL_SEC = 24 * 60 * 60;
 const WHY_MATTERS_CONCURRENCY = 5;
 
-// Pin to openrouter (google/gemini-2.5-flash until the #4944 U4 brief-voice
-// cutover, which is gated on the U3 shadow evaluation). Ollama isn't deployed
-// in Railway, and pinning keeps the brief's editorial voice on one model
-// across environments instead of drifting to the groq fallback.
+// Pin to openrouter (deepseek/deepseek-v4-flash since the #4944 U4
+// brief-voice cutover, gated on the U3 shadow evaluation). Ollama isn't
+// deployed in Railway, and pinning keeps the brief's editorial voice on one
+// model across environments instead of drifting to the groq fallback.
 const BRIEF_LLM_SKIP_PROVIDERS = ['ollama', 'groq'];
 
 // ── whyMatters (per story) ─────────────────────────────────────────────────
@@ -163,25 +163,26 @@ export async function generateWhyMatters(story, deps) {
     }
   }
 
-  // #4914: before paying a direct-Gemini generation, check the analyst
+  // #4914: before paying a direct-chain generation, check the analyst
   // endpoint's OWN cache namespace. api/internal/brief-why-matters.ts
-  // stores its envelope at brief:llm:whymatters:v8:{hash} under the same
-  // hashBriefStory identity — when the endpoint CALL failed transiently
-  // (or no endpoint is configured), the story may already have a paid,
-  // validated envelope sitting in Redis. Read-only: this fallback's own
-  // single-sentence output stays in the legacy v5 namespace below, so the
-  // two prompt contracts never cross-contaminate in the write direction.
+  // stores its envelope at brief:llm:whymatters:v9:{hash} (v8→v9 at the
+  // #4944 U4 model cutover) under the same hashBriefStory identity — when
+  // the endpoint CALL failed transiently (or no endpoint is configured),
+  // the story may already have a paid, validated envelope sitting in
+  // Redis. Read-only: this fallback's own single-sentence output stays in
+  // its own namespace below, so the two prompt contracts never
+  // cross-contaminate in the write direction.
   const storyHash = await hashBriefStory(story);
   try {
-    const v8 = await deps.cacheGet(`brief:llm:whymatters:v8:${storyHash}`);
-    if (v8 && typeof v8 === 'object' && typeof v8.whyMatters === 'string') {
-      const v8Trimmed = v8.whyMatters.trim();
+    const analystRow = await deps.cacheGet(`brief:llm:whymatters:v9:${storyHash}`);
+    if (analystRow && typeof analystRow === 'object' && typeof analystRow.whyMatters === 'string') {
+      const analystTrimmed = analystRow.whyMatters.trim();
       // Same acceptance bounds as the live-endpoint path above.
       if (
-        v8Trimmed.length >= 30 && v8Trimmed.length <= 500
-        && !/^story flagged by your sensitivity/i.test(v8Trimmed)
+        analystTrimmed.length >= 30 && analystTrimmed.length <= 500
+        && !/^story flagged by your sensitivity/i.test(analystTrimmed)
       ) {
-        return v8Trimmed;
+        return analystTrimmed;
       }
     }
   } catch { /* treat as miss */ }
@@ -196,12 +197,16 @@ export async function generateWhyMatters(story, deps) {
   // deploy. (v2→v3 was the 2026-04-24 RSS-description fix.) Entries
   // expire in ≤24h so the prior prefix ages out without a DEL sweep.
   //
+  // v5→v6: 2026-07-06 #4944 U4. The fallback chain's model moved to
+  // DeepSeek V4 Flash — v5 rows carry the old model's voice and must age
+  // out at cutover.
+  //
   // v4→v5: 2026-05-17 PR #3751. `hashBriefStory` folds `story.category`
   // into the key; pre-PR every story carried 'General' (no category was
   // persisted on story:track:v1), post-PR carries the per-story
   // Title-Cased EventCategory value. Every v4 cache row is now stale.
   // Bump invalidates them cleanly.
-  const key = `brief:llm:whymatters:v5:${storyHash}`;
+  const key = `brief:llm:whymatters:v6:${storyHash}`;
   try {
     const hit = await deps.cacheGet(key);
     if (typeof hit === 'string' && hit.length > 0) return hit;
@@ -327,7 +332,10 @@ export async function generateStoryDescription(story, deps) {
   // into the hash material — same story-shape change as whymatters
   // v4→v5. Pre-PR every category was 'General'; post-PR carries the
   // per-story Title-Cased EventCategory. Bump invalidates v2 entries.
-  const key = `brief:llm:description:v3:${await hashBriefStory(story)}`;
+  //
+  // v3→v4: 2026-07-06 #4944 U4 — chain model moved to DeepSeek V4 Flash;
+  // v3 rows carry old-model voice and must age out at cutover.
+  const key = `brief:llm:description:v4:${await hashBriefStory(story)}`;
   try {
     const hit = await deps.cacheGet(key);
     if (typeof hit === 'string') {
@@ -738,7 +746,10 @@ export async function generateDigestProse(userId, stories, sensitivity, deps, ct
   // model to lead with ONE primary story when two top stories aren't
   // substantively linked. v7 cache rows would otherwise serve stitched
   // leads for the full 4h TTL. Prompt content change → cache invalidation.
-  const key = `brief:llm:digest:v8:${hashDigestInput(userId, stories, sensitivity, ctx)}`;
+  //
+  // v8→v9 (2026-07-06, #4944 U4): digest prose model moved to DeepSeek
+  // V4 Flash — v8 rows carry old-model voice and must age out at cutover.
+  const key = `brief:llm:digest:v9:${hashDigestInput(userId, stories, sensitivity, ctx)}`;
   try {
     const hit = await deps.cacheGet(key);
     // CRITICAL: re-run the shape+grounding validator on cache hits.

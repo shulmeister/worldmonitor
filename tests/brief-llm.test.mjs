@@ -178,7 +178,7 @@ describe('generateWhyMatters', () => {
     const real = makeLLM('Closure would freeze a fifth of seaborne crude within days.');
     const first = await generateWhyMatters(story(), { ...cache, callLLM: real.callLLM });
     assert.ok(first);
-    const cachedKey = [...cache.store.keys()].find((k) => k.startsWith('brief:llm:whymatters:v5:'));
+    const cachedKey = [...cache.store.keys()].find((k) => k.startsWith('brief:llm:whymatters:v6:'));
     assert.ok(cachedKey, 'expected a whymatters cache entry under the v4 key (bumped 2026-05-14 for the F6 date-grounding line)');
 
     // Second call: responder throws — cache must prevent the call
@@ -572,7 +572,7 @@ describe('generateDigestProse', () => {
     const llm1 = makeLLM(validJson);
     await generateDigestProse('user_a', stories, 'all', { ...cache, callLLM: llm1.callLLM });
 
-    const badKey = [...cache.store.keys()].find((k) => k.startsWith('brief:llm:digest:v8:'));
+    const badKey = [...cache.store.keys()].find((k) => k.startsWith('brief:llm:digest:v9:'));
     assert.ok(badKey, 'expected a digest prose cache entry');
     // Overwrite with a payload whose content has zero proper-noun
     // overlap with `stories` (Iran Hormuz / Gaza). Shape is impeccable.
@@ -602,7 +602,7 @@ describe('generateDigestProse', () => {
     // (2026-05-14) when buildDigestPrompt gained the F6 date-grounding
     // line. v4 rows ignored at v5 rollout; v5 rows ignored at v6
     // rollout — see generateDigestProse header comment.
-    const badKey = [...cache.store.keys()].find((k) => k.startsWith('brief:llm:digest:v8:'));
+    const badKey = [...cache.store.keys()].find((k) => k.startsWith('brief:llm:digest:v9:'));
     assert.ok(badKey, 'expected a digest prose cache entry');
     cache.store.set(badKey, { lead: 'short', /* missing threads + signals */ });
     const llm2 = makeLLM(validJson);
@@ -1234,12 +1234,12 @@ describe('generateDigestProsePublic — public cache shared across users', () =>
     assert.equal(llm2.calls.length, 1, 'profile change re-keys the cache');
   });
 
-  it('writes to cache under brief:llm:digest:v8 prefix (v7/v6/v5/v4/v3/v2 evicted)', async () => {
+  it('writes to cache under brief:llm:digest:v9 prefix (v8 and older evicted)', async () => {
     const cache = makeCache();
     const llm = makeLLM(validJson);
     await generateDigestProse('user_a', stories, 'all', { ...cache, callLLM: llm.callLLM });
     const keys = [...cache.store.keys()];
-    assert.ok(keys.some((k) => k.startsWith('brief:llm:digest:v8:')), 'v8 prefix used');
+    assert.ok(keys.some((k) => k.startsWith('brief:llm:digest:v9:')), 'v9 prefix used');
     assert.ok(!keys.some((k) => k.startsWith('brief:llm:digest:v7:')), 'no v7 writes (bumped for anti-stitching prompt — May 2026)');
     assert.ok(!keys.some((k) => k.startsWith('brief:llm:digest:v6:')), 'no v6 writes (bumped for category persistence — PR #3751)');
     assert.ok(!keys.some((k) => k.startsWith('brief:llm:digest:v5:')), 'no v5 writes');
@@ -1376,7 +1376,7 @@ describe('generateStoryDescription', () => {
     assert.equal(setCalls.length, 1);
     assert.equal(setCalls[0].ttlSec, 24 * 60 * 60);
     assert.equal(setCalls[0].value, good);
-    assert.match(setCalls[0].key, /^brief:llm:description:v3:/);
+    assert.match(setCalls[0].key, /^brief:llm:description:v4:/);
   });
 });
 
@@ -1721,7 +1721,7 @@ describe('generateStoryDescription — sanitisation + prefix bump (U5)', () => {
     };
     await generateStoryDescription(story(), { ...cache, callLLM: llm.callLLM });
     assert.strictEqual(setCalls.length, 1);
-    assert.match(setCalls[0].key, /^brief:llm:description:v3:/, 'cache prefix must be v3 post-bump (PR #3751 category-persistence sibling)');
+    assert.match(setCalls[0].key, /^brief:llm:description:v4:/, 'cache prefix must be v4 post-bump (#4944 U4 model cutover)');
   });
 
   it('ignores legacy v1 / v2 cache entries (prefix bump forces cold start)', async () => {
@@ -1745,7 +1745,7 @@ describe('generateStoryDescription — sanitisation + prefix bump (U5)', () => {
     );
     assert.strictEqual(out, fresh, 'legacy v1/v2 rows must NOT be served post-bump');
     // And the freshly-written row lands under v3.
-    const v3Keys = [...store.keys()].filter((k) => k.startsWith('brief:llm:description:v3:'));
+    const v3Keys = [...store.keys()].filter((k) => k.startsWith('brief:llm:description:v4:'));
     assert.strictEqual(v3Keys.length, 1);
   });
 });
@@ -1753,7 +1753,7 @@ describe('generateStoryDescription — sanitisation + prefix bump (U5)', () => {
 // ── generateWhyMatters — v8 endpoint-cache cross-read (#4914) ──────────────
 //
 // The analyst endpoint (api/internal/brief-why-matters.ts) caches its
-// envelope at brief:llm:whymatters:v8:{hashBriefStory} — the SAME story
+// envelope at brief:llm:whymatters:v9:{hashBriefStory} — the SAME story
 // identity as the cron's legacy v5 namespace. When the endpoint CALL fails
 // transiently, the envelope may still be sitting in Redis; the fallback
 // must read it before paying a direct-Gemini generation.
@@ -1763,7 +1763,7 @@ describe('generateWhyMatters — v8 endpoint-cache cross-read (#4914)', () => {
 
   async function seedV8(cache, s, envelopeOverrides = {}) {
     const hash = await hashBriefStory(s);
-    cache.store.set(`brief:llm:whymatters:v8:${hash}`, {
+    cache.store.set(`brief:llm:whymatters:v9:${hash}`, {
       whyMatters: V8_PROSE,
       producedBy: 'analyst',
       ...envelopeOverrides,
@@ -1799,7 +1799,7 @@ describe('generateWhyMatters — v8 endpoint-cache cross-read (#4914)', () => {
     const cache = makeCache();
     const s = story();
     const hash = await hashBriefStory(s);
-    cache.store.set(`brief:llm:whymatters:v8:${hash}`, { whyMatters: 'too short' });
+    cache.store.set(`brief:llm:whymatters:v9:${hash}`, { whyMatters: 'too short' });
     const llm = makeLLM('Closure of the Strait of Hormuz would spike oil prices globally.');
     const out = await generateWhyMatters(s, { ...cache, callLLM: llm.callLLM });
     assert.equal(out, 'Closure of the Strait of Hormuz would spike oil prices globally.');
@@ -1821,7 +1821,7 @@ describe('generateWhyMatters — v8 endpoint-cache cross-read (#4914)', () => {
     const s = story();
     const llm = makeLLM('Closure of the Strait of Hormuz would spike oil prices globally.');
     await generateWhyMatters(s, { ...cache, callLLM: llm.callLLM });
-    const v8Keys = [...cache.store.keys()].filter((k) => k.startsWith('brief:llm:whymatters:v8:'));
+    const v8Keys = [...cache.store.keys()].filter((k) => k.startsWith('brief:llm:whymatters:v9:'));
     assert.equal(v8Keys.length, 0, 'legacy single-sentence output must stay in the v5 namespace');
   });
 });
