@@ -313,6 +313,9 @@ interface WhyMattersEnvelope {
   whyMatters: string;
   producedBy: 'analyst' | 'gemini';
   at: string; // ISO8601
+  /** Reasoning-model env at write time — model-era guard (#4967 review).
+   *  Optional so pre-guard rows still validate. */
+  model?: string;
 }
 
 function isEnvelope(v: unknown): v is WhyMattersEnvelope {
@@ -321,8 +324,23 @@ function isEnvelope(v: unknown): v is WhyMattersEnvelope {
   return (
     typeof e.whyMatters === 'string' &&
     (e.producedBy === 'analyst' || e.producedBy === 'gemini') &&
-    typeof e.at === 'string'
+    typeof e.at === 'string' &&
+    (e.model === undefined || typeof e.model === 'string')
   );
+}
+
+/** The reasoning-model era this deployment writes/serves. Rows stamped with
+ *  a different era are treated as misses, so a misordered deploy (v9 code
+ *  before the U3 env flip) self-heals per request instead of per TTL. */
+function reasoningModelEra(): string {
+  return (process.env.LLM_REASONING_MODEL || 'default').trim();
+}
+
+/** Exported for tests: a cached row is servable only if it carries no era
+ *  stamp (pre-guard row — grandfathered) or its stamp matches the current
+ *  era. */
+export function isServableEnvelope(row: { model?: string }, era: string): boolean {
+  return row.model === undefined || row.model === era;
 }
 
 // ── Handler ───────────────────────────────────────────────────────────
@@ -435,7 +453,14 @@ export default async function handler(req: Request, ctx?: EdgeContext): Promise<
   try {
     const raw = await readRawJsonFromUpstash(cacheKey);
     if (raw !== null && isEnvelope(raw)) {
-      cached = raw;
+      // Model-era guard (#4967 review): a row written under a different
+      // LLM_REASONING_MODEL era is stale-by-definition — regenerate now
+      // rather than serving old-model prose until TTL expiry.
+      if (isServableEnvelope(raw, reasoningModelEra())) {
+        cached = raw;
+      } else {
+        console.warn(`[brief-why-matters] cache row from model era "${raw.model}" ≠ current "${reasoningModelEra()}" — treating as miss`);
+      }
     }
   } catch (err) {
     console.warn(`[brief-why-matters] cache read degraded: ${err instanceof Error ? err.message : String(err)}`);
@@ -492,6 +517,7 @@ export default async function handler(req: Request, ctx?: EdgeContext): Promise<
       whyMatters: chosenValue,
       producedBy: chosenProducer,
       at: now,
+      model: reasoningModelEra(),
     };
     try {
       await setCachedData(cacheKey, envelope, WHY_MATTERS_TTL_SEC);

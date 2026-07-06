@@ -32,6 +32,7 @@ import {
 import { assertBriefEnvelope } from '../server/_shared/brief-render.js';
 import { composeBriefFromDigestStories, digestStoryToSynthesisShape } from '../scripts/lib/brief-compose.mjs';
 import { briefDateLine } from '../shared/brief-llm-core.js';
+import { callLLM as realChainCallLLM } from '../scripts/lib/llm-chain.cjs';
 
 // ── Fixtures ───────────────────────────────────────────────────────────────
 
@@ -1827,5 +1828,82 @@ describe('generateWhyMatters — v9 endpoint-cache cross-read (#4914)', () => {
     await generateWhyMatters(s, { ...cache, callLLM: llm.callLLM });
     const v9Keys = [...cache.store.keys()].filter((k) => k.startsWith('brief:llm:whymatters:v9:'));
     assert.equal(v9Keys.length, 0, 'fallback single-sentence output must stay in the v6 namespace');
+  });
+});
+
+// ── brief transport contract (#4967 review) ────────────────────────────────
+//
+// The brief prose fallback is OpenRouter-ONLY by design: skipProviders pins
+// away from ollama+groq so the editorial voice never drifts to the fallback
+// model — an OpenRouter failure means stub, never a groq generation. These
+// tests drive the REAL llm-chain transport (not a stub callLLM) to pin the
+// wire contract: DeepSeek model + reasoning-off body, and the no-groq rule.
+
+describe('brief transport contract — real llm-chain (#4967)', () => {
+  const ENV_KEYS = ['OPENROUTER_API_KEY', 'GROQ_API_KEY', 'OLLAMA_API_URL', 'USAGE_TELEMETRY'];
+  const savedEnv = Object.fromEntries(ENV_KEYS.map((k) => [k, process.env[k]]));
+  const realFetch = globalThis.fetch;
+  function restore() {
+    globalThis.fetch = realFetch;
+    for (const k of ENV_KEYS) {
+      if (savedEnv[k] === undefined) delete process.env[k];
+      else process.env[k] = savedEnv[k];
+    }
+  }
+
+  it('sends deepseek-v4-flash with reasoning disabled on the OpenRouter wire', async () => {
+    process.env.OPENROUTER_API_KEY = 'or-test';
+    process.env.GROQ_API_KEY = 'groq-test';
+    delete process.env.OLLAMA_API_URL;
+    delete process.env.USAGE_TELEMETRY;
+    const bodies = [];
+    globalThis.fetch = async (url, init = {}) => {
+      const raw = String(url);
+      if (raw.includes('openrouter.ai')) {
+        bodies.push(JSON.parse(String(init.body || '{}')));
+        return { ok: true, json: async () => ({ choices: [{ message: { content: 'Closure of the strait would choke a fifth of seaborne crude and rattle allied planning.' } }] }) };
+      }
+      throw new Error(`brief transport must not call ${raw}`);
+    };
+    try {
+      const cache = makeCache();
+      const out = await generateWhyMatters(
+        { headline: 'Strait closure looms', source: 'Reuters', threatLevel: 'high', category: 'Conflict', country: 'IR' },
+        { ...cache, callLLM: realChainCallLLM },
+      );
+      assert.ok(out && out.length > 30, 'fallback generation must succeed');
+      assert.equal(bodies.length, 1);
+      assert.equal(bodies[0].model, 'deepseek/deepseek-v4-flash');
+      assert.deepEqual(bodies[0].reasoning, { enabled: false });
+    } finally { restore(); }
+  });
+
+  it('never falls back to groq for brief prose — OpenRouter failure means stub', async () => {
+    process.env.OPENROUTER_API_KEY = 'or-test';
+    process.env.GROQ_API_KEY = 'groq-test';
+    delete process.env.OLLAMA_API_URL;
+    delete process.env.USAGE_TELEMETRY;
+    const hits = [];
+    globalThis.fetch = async (url) => {
+      const raw = String(url);
+      hits.push(raw);
+      if (raw.includes('openrouter.ai')) {
+        return { ok: false, status: 503, json: async () => ({}) };
+      }
+      if (raw.includes('api.groq.com')) {
+        return { ok: true, json: async () => ({ choices: [{ message: { content: 'GROQ MUST NOT PRODUCE BRIEF PROSE' } }] }) };
+      }
+      throw new Error(`unexpected fetch: ${raw}`);
+    };
+    try {
+      const cache = makeCache();
+      const out = await generateWhyMatters(
+        { headline: 'Strait closure looms', source: 'Reuters', threatLevel: 'high', category: 'Conflict', country: 'IR' },
+        { ...cache, callLLM: realChainCallLLM },
+      );
+      assert.equal(out, null, 'OpenRouter failure must surface as null (caller stubs) — voice never drifts to groq');
+      assert.ok(hits.some((u) => u.includes('openrouter.ai')), 'openrouter must be attempted');
+      assert.ok(!hits.some((u) => u.includes('api.groq.com')), 'groq must NOT be attempted for brief prose');
+    } finally { restore(); }
   });
 });

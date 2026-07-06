@@ -901,3 +901,28 @@ describe('Gemini path prompt parity', () => {
     assert.ok(user.endsWith('One editorial sentence on why this matters:'));
   });
 });
+
+// ── model-era guard (#4967 review) ──────────────────────────────────────
+//
+// The whymatters v9 fill model is env-governed (LLM_REASONING_MODEL), so a
+// misordered deploy (v9 code before the U3 env flip) could seed fresh rows
+// with old-model prose. The guard stamps each envelope with its era and
+// treats rows from a different era as cache misses — self-healing per
+// request instead of per TTL.
+
+describe('isServableEnvelope — model-era guard', () => {
+  it('serves a row whose era stamp matches the current era', async () => {
+    const { isServableEnvelope } = await import('../api/internal/brief-why-matters.ts');
+    assert.equal(isServableEnvelope({ model: 'deepseek/deepseek-v4-pro' }, 'deepseek/deepseek-v4-pro'), true);
+  });
+
+  it('treats a row from a different model era as a miss', async () => {
+    const { isServableEnvelope } = await import('../api/internal/brief-why-matters.ts');
+    assert.equal(isServableEnvelope({ model: 'google/gemini-3-flash-preview' }, 'deepseek/deepseek-v4-pro'), false);
+  });
+
+  it('grandfathers pre-guard rows with no era stamp', async () => {
+    const { isServableEnvelope } = await import('../api/internal/brief-why-matters.ts');
+    assert.equal(isServableEnvelope({}, 'deepseek/deepseek-v4-pro'), true);
+  });
+});
