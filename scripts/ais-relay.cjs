@@ -6492,12 +6492,14 @@ const DODO_PRODUCT_IDS = [
   'pdt_0NbttMIfjLWC10jHQWYgJ', // Pro Annual
   'pdt_0NbttVmG1SERrxhygbbUq', // API Starter Monthly
   'pdt_0Nbu2lawHYE3dv2THgSEV', // API Starter Annual
+  'pdt_0Nbttg7NuOJrhbyBGCius', // API Business Monthly (#4945)
 ];
 
 const DODO_TIER_CONFIG = {
   free: { name: 'Free', description: 'Get started with the essentials', features: ['Core dashboard panels', 'Global news feed', 'Earthquake & weather alerts', 'Basic map view'], cta: 'Get Started', href: 'https://worldmonitor.app/dashboard', highlighted: false },
   pro: { name: 'Pro', description: 'Full intelligence dashboard', features: ['Everything in Free', 'AI stock analysis & backtesting', 'Daily market briefs', 'Military & geopolitical tracking', 'Custom widget builder', 'MCP + SDK access for Claude Desktop & other AI clients (50 calls/day)', 'Priority data refresh'], highlighted: true },
   api_starter: { name: 'API', description: 'Programmatic access to intelligence data', features: ['REST API + official SDKs (npm, PyPI, RubyGems, Go)', 'Real-time data streams', '60 requests/minute', '1,000 requests/day included', 'Webhook notifications', 'Custom data exports'], highlighted: false },
+  api_business: { name: 'API Business', description: 'High-volume API for teams', features: ['Everything in API Starter', '300 requests/minute', '10,000 requests/day included', 'Priority support', 'XLSX exports'], highlighted: false },
   enterprise: { name: 'Enterprise', description: 'Custom solutions for organizations', features: ['Everything in Pro + API', 'Unlimited API requests', 'Dedicated support', 'Custom integrations', 'SLA guarantee', 'On-premise option'], cta: 'Contact Sales', href: 'mailto:enterprise@worldmonitor.app', highlighted: false },
 };
 
@@ -6506,6 +6508,7 @@ const DODO_PRODUCT_META = {
   'pdt_0NbttMIfjLWC10jHQWYgJ': { tierGroup: 'pro', billingPeriod: 'annual' },
   'pdt_0NbttVmG1SERrxhygbbUq': { tierGroup: 'api_starter', billingPeriod: 'monthly' },
   'pdt_0Nbu2lawHYE3dv2THgSEV': { tierGroup: 'api_starter', billingPeriod: 'annual' },
+  'pdt_0Nbttg7NuOJrhbyBGCius': { tierGroup: 'api_business', billingPeriod: 'monthly' },
 };
 
 const DODO_FALLBACK_PRICES = {
@@ -6513,6 +6516,7 @@ const DODO_FALLBACK_PRICES = {
   'pdt_0NbttMIfjLWC10jHQWYgJ': 39999,
   'pdt_0NbttVmG1SERrxhygbbUq': 9999,
   'pdt_0Nbu2lawHYE3dv2THgSEV': 99900,
+  'pdt_0Nbttg7NuOJrhbyBGCius': 24999,
 };
 
 let dodoPriceSeedInFlight = false;
@@ -6580,7 +6584,7 @@ async function seedDodoPrices() {
 
     // Build tier view model
     const tiers = [];
-    const publicGroups = ['free', 'pro', 'api_starter', 'enterprise'];
+    const publicGroups = ['free', 'pro', 'api_starter', 'api_business', 'enterprise'];
     for (const group of publicGroups) {
       const config = DODO_TIER_CONFIG[group];
       if (!config) continue;

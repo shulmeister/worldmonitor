@@ -431,6 +431,83 @@ describe("payments billing duplicate-checkout guard", () => {
 
     expect(result).toBeNull();
   });
+
+  // #4946: api_starter and api_business are distinct tier groups but ONE
+  // billing family — an active Starter buying Business from /pro must hit
+  // the duplicate dialog (→ portal, where the #4634 collection upgrade
+  // lives), not stack a second concurrent API subscription.
+  test("blocks a Business checkout while an API Starter subscription is active", async () => {
+    const t = convexTest(schema, modules);
+
+    await seedSubscription(t, {
+      planKey: "api_starter",
+      dodoProductId: PRODUCT_CATALOG.api_starter.dodoProductId!,
+      status: "active",
+      currentPeriodEnd: NOW + 30 * DAY_MS,
+      suffix: "starter_blocks_business",
+    });
+
+    const result = await t.query(
+      internal.payments.billing.getCheckoutBlockingSubscription,
+      {
+        userId: TEST_USER_ID,
+        productId: PRODUCT_CATALOG.api_business.dodoProductId!,
+      },
+    );
+
+    expect(result).toMatchObject({
+      planKey: "api_starter",
+      status: "active",
+      displayName: "API Starter Monthly",
+    });
+  });
+
+  test("blocks a Starter checkout while an API Business subscription is active", async () => {
+    const t = convexTest(schema, modules);
+
+    await seedSubscription(t, {
+      planKey: "api_business",
+      dodoProductId: PRODUCT_CATALOG.api_business.dodoProductId!,
+      status: "active",
+      currentPeriodEnd: NOW + 30 * DAY_MS,
+      suffix: "business_blocks_starter",
+    });
+
+    const result = await t.query(
+      internal.payments.billing.getCheckoutBlockingSubscription,
+      {
+        userId: TEST_USER_ID,
+        productId: PRODUCT_CATALOG.api_starter.dodoProductId!,
+      },
+    );
+
+    expect(result).toMatchObject({
+      planKey: "api_business",
+      status: "active",
+    });
+  });
+
+  test("an active Pro subscription does not block an API Business checkout", async () => {
+    const t = convexTest(schema, modules);
+
+    await seedSubscription(t, {
+      planKey: "pro_monthly",
+      dodoProductId: PRODUCT_CATALOG.pro_monthly.dodoProductId!,
+      status: "active",
+      currentPeriodEnd: NOW + 30 * DAY_MS,
+      suffix: "pro_not_blocking_business",
+    });
+
+    const result = await t.query(
+      internal.payments.billing.getCheckoutBlockingSubscription,
+      {
+        userId: TEST_USER_ID,
+        productId: PRODUCT_CATALOG.api_business.dodoProductId!,
+      },
+    );
+
+    expect(result).toBeNull();
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -625,7 +702,12 @@ describe("payments pending-payment dedup guard", () => {
     expect(result).toMatchObject({ planKey: "api_starter" });
   });
 
-  test("does NOT block an api_business checkout when the pending payment is api_starter (distinct tier groups)", async () => {
+  // Policy inverted by #4946 (api_business published): api_starter and
+  // api_business are distinct tier groups but ONE billing family — a
+  // pending Starter payment now BLOCKS a Business checkout so a user
+  // mid-3DS on Starter can't stack a second concurrent API purchase.
+  // Cross-line (pro vs api) stays non-blocking, covered below.
+  test("blocks an api_business checkout while an api_starter payment is pending (same billing family)", async () => {
     const t = convexTest(schema, modules);
 
     await seedPaymentEvent(t, {
@@ -633,6 +715,27 @@ describe("payments pending-payment dedup guard", () => {
       planKey: "api_starter",
       occurredAt: NOW - 3 * MIN_MS,
       suffix: "pending_api_starter_vs_business",
+    });
+
+    const result = await t.query(
+      internal.payments.billing.getBlockingPendingPayment,
+      {
+        userId: TEST_USER_ID,
+        productId: PRODUCT_CATALOG.api_business.dodoProductId!,
+      },
+    );
+
+    expect(result).toMatchObject({ planKey: "api_starter" });
+  });
+
+  test("does NOT block an api_business checkout when the pending payment is pro (different billing family)", async () => {
+    const t = convexTest(schema, modules);
+
+    await seedPaymentEvent(t, {
+      status: "processing",
+      planKey: "pro_monthly",
+      occurredAt: NOW - 3 * MIN_MS,
+      suffix: "pending_pro_vs_business",
     });
 
     const result = await t.query(

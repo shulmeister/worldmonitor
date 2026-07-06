@@ -751,13 +751,29 @@ export const getActiveSubscription = internalQuery({
 });
 
 /**
+ * Billing family for the duplicate-checkout guards. api_starter and
+ * api_business are DISTINCT pricing-page tiers but the SAME product line:
+ * an active Starter customer clicking "API Business" on /pro must hit the
+ * duplicate-subscription dialog and be routed to the billing portal (where
+ * the #4634 Dodo collection upgrade lives) — NOT be sold a second
+ * concurrent API subscription ($99.99 + $249.99 double-billing; PR #4946
+ * review). Pro ↔ API cross-line purchases remain deliberately allowed —
+ * they are complementary products.
+ */
+export function checkoutBillingFamily(tierGroup: string): string {
+  return tierGroup.startsWith("api_") ? "api" : tierGroup;
+}
+
+/**
  * Internal query used by checkout creation to prevent duplicate subscriptions.
  *
  * Blocks new checkout sessions when the user already has an active/on_hold
- * subscription in the same tier group, or a cancelled subscription that
- * still has time remaining in the current billing period. This is an app-side
- * guard only; Dodo's "Allow Multiple Subscriptions" setting is still the
- * provider-side backstop for races before webhook ingestion updates Convex.
+ * subscription in the same billing family (see checkoutBillingFamily —
+ * api_starter and api_business count as one family), or a cancelled
+ * subscription that still has time remaining in the current billing period.
+ * This is an app-side guard only; Dodo's "Allow Multiple Subscriptions"
+ * setting is still the provider-side backstop for races before webhook
+ * ingestion updates Convex.
  */
 export const getCheckoutBlockingSubscription = internalQuery({
   args: {
@@ -779,7 +795,10 @@ export const getCheckoutBlockingSubscription = internalQuery({
       .filter((sub) => {
         const existingCatalogEntry = PRODUCT_CATALOG[sub.planKey];
         if (!existingCatalogEntry) return false;
-        if (existingCatalogEntry.tierGroup !== targetCatalogEntry.tierGroup) return false;
+        if (
+          checkoutBillingFamily(existingCatalogEntry.tierGroup) !==
+          checkoutBillingFamily(targetCatalogEntry.tierGroup)
+        ) return false;
         if (sub.status === "active" || sub.status === "on_hold") return true;
         return sub.status === "cancelled" && sub.currentPeriodEnd > now;
       })
@@ -884,7 +903,13 @@ export const getBlockingPendingPayment = internalQuery({
         if (!ev.planKey) return false;
         const entry = PRODUCT_CATALOG[ev.planKey];
         if (!entry) return false;
-        return entry.tierGroup === targetCatalogEntry.tierGroup;
+        // Same family scoping as the subscription guard: a pending Starter
+        // payment blocks a Business checkout (and vice versa), while a
+        // pending Pro payment never blocks an API purchase.
+        return (
+          checkoutBillingFamily(entry.tierGroup) ===
+          checkoutBillingFamily(targetCatalogEntry.tierGroup)
+        );
       })
       .sort((a, b) => b.occurredAt - a.occurredAt)[0];
 

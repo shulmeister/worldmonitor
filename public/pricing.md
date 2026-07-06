@@ -1,6 +1,6 @@
 # Pricing - World Monitor
 
-Last updated: July 5, 2026
+Last updated: July 6, 2026
 
 World Monitor has a free public dashboard and paid tiers for analyst workflows, API access and organization deployments.
 
@@ -33,6 +33,14 @@ Live tier/price/product-ID data (JSON): `GET https://www.worldmonitor.app/api/pr
 - Includes: REST API access, structured JSON, cache headers, OpenAPI docs, real-time data streams, webhook notifications and custom data exports
 - Starter limit: 1,000 requests/day
 - Starter webhooks: 5 webhook rules
+
+## API Business
+
+- Price: $249.99/month
+- Best for: Teams with high-volume programmatic workloads that outgrow the Starter quota
+- Includes: Everything in API Starter, priority support and XLSX exports
+- Limits: 300 requests/minute, 10,000 requests/day
+- Upgrading from Starter: manage the switch from the billing portal (prorated immediately); new customers can subscribe directly at https://worldmonitor.app/pro
 
 ## Enterprise
 
@@ -74,6 +82,11 @@ Live tier/price/product-ID data (JSON): `GET https://www.worldmonitor.app/api/pr
       "price_usd_monthly": 99.99,
       "price_usd_yearly": 999,
       "features": ["REST API", "1,000 requests/day starter limit", "webhooks", "structured JSON", "OpenAPI docs"]
+    },
+    {
+      "name": "API Business",
+      "price_usd_monthly": 249.99,
+      "features": ["Everything in API Starter", "300 requests/minute", "10,000 requests/day", "priority support", "XLSX exports"]
     },
     {
       "name": "Enterprise",

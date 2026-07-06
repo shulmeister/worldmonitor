@@ -25,7 +25,7 @@ const catalogSrc = read('convex/config/productCatalog.ts');
 
 // planKey → priceCents for every publicly-priced subscription plan,
 // including the annual API plan the original docs omitted entirely.
-const PLAN_KEYS = ['pro_monthly', 'pro_annual', 'api_starter', 'api_starter_annual'];
+const PLAN_KEYS = ['pro_monthly', 'pro_annual', 'api_starter', 'api_starter_annual', 'api_business'];
 const priceCentsFor = (planKey) => {
   const blockStart = catalogSrc.indexOf(`${planKey}: {`);
   assert.notEqual(blockStart, -1, `productCatalog.ts must contain a "${planKey}" entry`);
@@ -82,6 +82,7 @@ test('pricing.md machine-readable JSON block matches productCatalog.ts numerical
     ['Pro', 'price_usd_yearly', 'pro_annual'],
     ['API', 'price_usd_monthly', 'api_starter'],
     ['API', 'price_usd_yearly', 'api_starter_annual'],
+    ['API Business', 'price_usd_monthly', 'api_business'],
   ];
   for (const [plan, field, planKey] of EXPECT) {
     assert.ok(planByName[plan], `JSON summary must have a "${plan}" plan`);

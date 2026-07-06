@@ -162,6 +162,56 @@ describe('Product catalog freshness', () => {
     }
   });
 
+  // PR #4946 P0 regression guard: the Railway seeder (scripts/ais-relay.cjs
+  // "DodoPrices" loop) writes the Redis payload that /api/product-catalog
+  // serves on every cache HIT — in steady state it WINS over the edge
+  // fallback. When #4945 published api_business, the seeder's hardcoded
+  // 4-tier mirror silently reverted the live /pro page to 4 cards the
+  // moment the fetch resolved. These parity checks make every priced,
+  // publicVisible catalog entry provably present in the seeder mirror.
+  it('ais-relay Dodo seeder mirrors every priced publicVisible catalog entry', () => {
+    const catalogSrc = readFileSync(join(ROOT, 'convex/config/productCatalog.ts'), 'utf8');
+    const relaySrc = readFileSync(join(ROOT, 'scripts/ais-relay.cjs'), 'utf8');
+
+    // Catalog truth: publicVisible entries with a Dodo product + real price.
+    const entries = [];
+    for (const block of catalogSrc.split(/\n\s*\w+:\s*\{/).slice(1)) {
+      if (!block.includes('publicVisible: true')) continue;
+      const id = block.match(/dodoProductId:\s*["']([^"']+)["']/)?.[1];
+      const group = block.match(/tierGroup:\s*["']([^"']+)["']/)?.[1];
+      const cents = block.match(/priceCents:\s*(\d+)/)?.[1];
+      if (id && group && cents && Number(cents) > 0) {
+        entries.push({ id, group, cents: Number(cents) });
+      }
+    }
+    assert.ok(entries.length >= 5, 'expected at least 5 priced publicVisible catalog entries');
+
+    const relayIds = [...relaySrc.matchAll(/'(pdt_[A-Za-z0-9]+)'/g)].map((m) => m[1]);
+    const publicGroupsMatch = relaySrc.match(/const publicGroups = \[([^\]]+)\]/);
+    assert.ok(publicGroupsMatch, 'ais-relay.cjs must declare publicGroups');
+    const relayGroups = [...publicGroupsMatch[1].matchAll(/'([^']+)'/g)].map((m) => m[1]);
+
+    for (const { id, group, cents } of entries) {
+      assert.ok(relayIds.includes(id),
+        `ais-relay.cjs DODO_PRODUCT_IDS is missing ${id} (${group}) — the Redis-seeded catalog will drop this tier from the live /pro page`);
+      assert.ok(new RegExp(`'${id}':\\s*\\{\\s*tierGroup:\\s*'${group}'`).test(relaySrc),
+        `ais-relay.cjs DODO_PRODUCT_META is missing/mismatched for ${id} (${group})`);
+      assert.ok(new RegExp(`'${id}':\\s*${cents}\\b`).test(relaySrc),
+        `ais-relay.cjs DODO_FALLBACK_PRICES for ${id} must be ${cents} to match productCatalog.ts`);
+      assert.ok(relayGroups.includes(group),
+        `ais-relay.cjs publicGroups is missing '${group}' — tier will never render from the seeded payload`);
+    }
+
+    // Mirror↔mirror: the seeder and the edge fallback must agree on the
+    // public tier list (order included — it is the /pro card order).
+    const edgeSrc = readFileSync(join(ROOT, 'api/product-catalog.js'), 'utf8');
+    const edgeGroupsMatch = edgeSrc.match(/const PUBLIC_TIER_GROUPS = \[([^\]]+)\]/);
+    assert.ok(edgeGroupsMatch, 'api/product-catalog.js must declare PUBLIC_TIER_GROUPS');
+    const edgeGroups = [...edgeGroupsMatch[1].matchAll(/'([^']+)'/g)].map((m) => m[1]);
+    assert.deepEqual(relayGroups, edgeGroups,
+      'ais-relay publicGroups and api/product-catalog PUBLIC_TIER_GROUPS have drifted apart');
+  });
+
   it('generated files and pro locale placeholders are fresh (re-running generator produces same output)', () => {
     // Capture current generated content
     const currentProducts = readFileSync(join(ROOT, 'src/config/products.generated.ts'), 'utf8');
