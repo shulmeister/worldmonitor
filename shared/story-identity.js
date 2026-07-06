@@ -367,6 +367,14 @@ export function clusterTexts(texts, opts = {}) {
   const vectors = texts.map((t) => storyVector(t));
   const tokenSets = texts.map((t) => candidateTokens(t));
 
+  // Exact-duplicate pre-union (#4924 external review): identical
+  // normalized texts union unconditionally BEFORE the candidate scan.
+  // Without this, a mega-story (e.g. 251 verbatim syndications) makes
+  // every shared token bucket exceed MAX_CANDIDATE_BUCKET, no pairs get
+  // scored, and the most-corroborated story of the day degrades to
+  // singletons — the exact case corroboration exists for.
+  const byExactText = new Map();
+
   const invertedIndex = new Map();
   for (let i = 0; i < texts.length; i++) {
     for (const token of tokenSets[i]) {
@@ -378,6 +386,7 @@ export function clusterTexts(texts, opts = {}) {
 
   const parent = new Array(texts.length);
   for (let i = 0; i < texts.length; i++) parent[i] = i;
+
   const find = (x) => {
     let root = x;
     while (parent[root] !== root) root = parent[root];
@@ -396,6 +405,14 @@ export function clusterTexts(texts, opts = {}) {
     if (ra < rb) parent[rb] = ra;
     else parent[ra] = rb;
   };
+
+  for (let i = 0; i < texts.length; i++) {
+    const normalized = normalizeStoryText(texts[i]);
+    if (!normalized) continue;
+    const first = byExactText.get(normalized);
+    if (first === undefined) byExactText.set(normalized, i);
+    else union(first, i);
+  }
 
   for (let i = 0; i < texts.length; i++) {
     if (!vectors[i]) continue;

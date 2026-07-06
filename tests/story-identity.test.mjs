@@ -387,3 +387,14 @@ describe('list-feed-digest story-identity wiring (#4924 review)', () => {
     assert.match(digestSrc, /story-identity coverage miss/, 'fallback branch must log');
   });
 });
+
+describe('hot-bucket mega-story pre-union (#4924 external review)', () => {
+  it('251 identical titles cluster together even when every token bucket is hot', () => {
+    const texts = Array.from({ length: 251 }, () => 'Iran threatens to close Strait of Hormuz');
+    texts.push('Kenya tax protests spread to Nairobi');
+    const clusters = clusterTexts(texts);
+    const sizes = clusters.map((c) => c.length).sort((a, b) => b - a);
+    assert.equal(sizes[0], 251, 'identical titles must union regardless of bucket caps');
+    assert.equal(sizes[1], 1);
+  });
+});
