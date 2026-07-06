@@ -185,7 +185,7 @@
     "starterReqs": "1,000 次/天",
     "starterWebhooks": "5 条 webhook 规则",
     "business": "Business",
-    "businessReqs": "50,000 次/天",
+    "businessReqs": "10,000 次/天",
     "businessWebhooks": "无限 webhook + SLA",
     "feedData": "将数据输入您的仪表板,通过 Zapier/n8n/Make 自动化告警,基于 CII/风险数据构建自定义评分模型。"
   },

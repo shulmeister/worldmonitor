@@ -185,7 +185,7 @@
     "starterReqs": "1.000 req/ngày",
     "starterWebhooks": "5 quy tắc webhook",
     "business": "Business",
-    "businessReqs": "50.000 req/ngày",
+    "businessReqs": "10.000 req/ngày",
     "businessWebhooks": "Webhook không giới hạn + SLA",
     "feedData": "Đưa dữ liệu vào bảng điều khiển của bạn, tự động hóa cảnh báo qua Zapier/n8n/Make, xây dựng mô hình ghi điểm tùy chỉnh trên dữ liệu CII/rủi ro."
   },

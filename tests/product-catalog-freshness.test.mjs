@@ -210,6 +210,17 @@ describe('Product catalog freshness', () => {
     const edgeGroups = [...edgeGroupsMatch[1].matchAll(/'([^']+)'/g)].map((m) => m[1]);
     assert.deepEqual(relayGroups, edgeGroups,
       'ais-relay publicGroups and api/product-catalog PUBLIC_TIER_GROUPS have drifted apart');
+
+    // Both mirrors must carry the generated localeKey for every public tier
+    // so translations survive the live payload replacing static tiers.json
+    // (PricingSection falls back to name.toLowerCase(), which breaks for
+    // multi-word names like 'API Business').
+    for (const localeKey of ['free', 'pro', 'api', 'apiBusiness', 'enterprise']) {
+      for (const [label, src] of [['ais-relay.cjs', relaySrc], ['api/product-catalog.js', edgeSrc]]) {
+        assert.ok(src.includes(`localeKey: '${localeKey}'`),
+          `${label} TIER_CONFIG is missing localeKey '${localeKey}'`);
+      }
+    }
   });
 
   it('generated files and pro locale placeholders are fresh (re-running generator produces same output)', () => {

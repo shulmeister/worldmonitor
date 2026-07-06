@@ -185,7 +185,7 @@
     "starterReqs": "1 000 req/jour",
     "starterWebhooks": "5 règles webhook",
     "business": "Business",
-    "businessReqs": "50 000 req/jour",
+    "businessReqs": "10 000 req/jour",
     "businessWebhooks": "Webhooks illimités + SLA",
     "feedData": "Injectez des données dans vos tableaux de bord, automatisez l'alerting via Zapier/n8n/Make, construisez des modèles de scoring personnalisés sur données CII/risque."
   },

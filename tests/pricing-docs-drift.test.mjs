@@ -48,10 +48,16 @@ const proseRegexFor = (cents) => {
     .map((ch, i) => (i > 0 && i % 3 === 0 ? `${ch},?` : ch))
     .reverse()
     .join('');
-  return new RegExp(`\\$${intWithOptionalCommas}${frac ? `\\.${frac}` : '(?![.\\d])'}`);
+  // `$` optional: pricing.md/mdx write "$39.99", api-commerce.mdx's example
+  // JSON writes bare `39.99` — both count as carrying the current price.
+  return new RegExp(`\\$?${intWithOptionalCommas}${frac ? `\\.${frac}` : '(?![.\\d])'}`);
 };
 
-const DOCS = ['public/pricing.md', 'docs/pricing.mdx'];
+// api-commerce.mdx is included because its example /api/product-catalog
+// response embeds real prices — it shipped $20/$180 Pro for months before
+// anyone noticed (caught twice: the 2026-07-05 docs audit and the #4946
+// review). Every doc here must carry every current price.
+const DOCS = ['public/pricing.md', 'docs/pricing.mdx', 'docs/api-commerce.mdx'];
 
 for (const doc of DOCS) {
   const content = read(doc);

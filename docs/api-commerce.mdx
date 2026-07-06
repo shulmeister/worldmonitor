@@ -34,13 +34,14 @@ Creates a Dodo customer-portal session for an existing subscriber (update card, 
 
 Returns the tier view-model used by the `/pro` pricing page. Cached in Redis under `product-catalog:v2` for 1 hour; on cache miss, fetches live prices from Dodo Payments and falls back to `_product-fallback-prices.js` if Dodo is unreachable. Response carries an `X-Product-Catalog-Source` header so probes can tell cache hits from live fetches.
 
-**Response** (tiers ordered `free`, `pro`, `api_starter`, `enterprise`):
+**Response** (tiers ordered `free`, `pro`, `api_starter`, `api_business`, `enterprise`):
 
 ```json
 {
   "tiers": [
     {
       "name": "Free",
+      "localeKey": "free",
       "description": "Get started with the essentials",
       "features": ["Core dashboard panels", "..."],
       "cta": "Get Started",
@@ -51,26 +52,38 @@ Returns the tier view-model used by the `/pro` pricing page. Cached in Redis und
     },
     {
       "name": "Pro",
+      "localeKey": "pro",
       "description": "Full intelligence dashboard",
       "features": ["..."],
       "highlighted": true,
-      "monthlyPrice": 20,
+      "monthlyPrice": 39.99,
       "monthlyProductId": "pdt_0Nbtt71uObulf7fGXhQup",
-      "annualPrice": 180,
+      "annualPrice": 399.99,
       "annualProductId": "pdt_0NbttMIfjLWC10jHQWYgJ"
     },
     {
       "name": "API",
+      "localeKey": "api",
       "description": "Programmatic access to intelligence data",
       "features": ["..."],
       "highlighted": false,
-      "monthlyPrice": 99,
+      "monthlyPrice": 99.99,
       "monthlyProductId": "pdt_0NbttVmG1SERrxhygbbUq",
-      "annualPrice": 990,
+      "annualPrice": 999,
       "annualProductId": "pdt_0Nbu2lawHYE3dv2THgSEV"
     },
     {
+      "name": "API Business",
+      "localeKey": "apiBusiness",
+      "description": "High-volume API for teams",
+      "features": ["..."],
+      "highlighted": false,
+      "monthlyPrice": 249.99,
+      "monthlyProductId": "pdt_0Nbttg7NuOJrhbyBGCius"
+    },
+    {
       "name": "Enterprise",
+      "localeKey": "enterprise",
       "description": "Custom solutions for organizations",
       "features": ["..."],
       "cta": "Contact Sales",
@@ -79,8 +92,8 @@ Returns the tier view-model used by the `/pro` pricing page. Cached in Redis und
       "price": null
     }
   ],
-  "fetchedAt": "2026-04-19T12:00:00Z",
-  "cachedUntil": "2026-04-19T13:00:00Z",
+  "fetchedAt": "2026-07-06T12:00:00Z",
+  "cachedUntil": "2026-07-06T13:00:00Z",
   "priceSource": "dodo"
 }
 ```
