@@ -27,23 +27,84 @@ import {
 } from './checkout-intent-url';
 import { createEntitlementWatchdog, type EntitlementWatchdog } from './entitlement-watchdog';
 import { DASHBOARD_CHECKOUT_SUCCESS_URL, DASHBOARD_CHECKOUT_RETURN_URL } from '../routes';
+import fallbackTiers from '../generated/tiers.json';
 
 let checkoutInFlight = false;
 
 /**
- * Funnel event via the raw Umami tracker (#4931). The /pro build has no
- * analytics facade — the tracker script in index.html exposes window.umami
- * once loaded; before that (or when blocked) this is a silent no-op.
- * Analytics must never break checkout, hence the try/catch.
+ * Funnel events via the raw Umami tracker (#4931). The tracker script is
+ * `async` and typically loads AFTER the mount-time auto-resume runs, so a
+ * fire-and-forget call would silently drop the only signed-in resume event
+ * (#4934 round-4 F3). Events queue until window.umami exists and flush via
+ * a short poll (500ms × 60 ≈ 30s, then give up — blocked tracker).
+ * Analytics must never break checkout, hence the try/catch everywhere.
  */
+const FUNNEL_QUEUE_LIMIT = 20;
+const FUNNEL_FLUSH_INTERVAL_MS = 500;
+const FUNNEL_FLUSH_MAX_ATTEMPTS = 60;
+const pendingFunnelEvents: Array<{ event: string; data?: Record<string, unknown> }> = [];
+let funnelFlushTimer: number | null = null;
+
+function getUmami(): { track: (event: string, data?: Record<string, unknown>) => void } | undefined {
+  try {
+    return (window as Window & {
+      umami?: { track: (event: string, data?: Record<string, unknown>) => void };
+    }).umami;
+  } catch {
+    return undefined;
+  }
+}
+
+function flushPendingFunnelEvents(): boolean {
+  const umami = getUmami();
+  if (!umami) return false;
+  for (const item of pendingFunnelEvents.splice(0, pendingFunnelEvents.length)) {
+    try { umami.track(item.event, item.data); } catch { /* tracker threw — drop */ }
+  }
+  return true;
+}
+
 function trackFunnelEvent(event: string, data?: Record<string, unknown>): void {
   try {
-    (window as Window & {
-      umami?: { track: (event: string, data?: Record<string, unknown>) => void };
-    }).umami?.track(event, data);
+    const umami = getUmami();
+    if (umami) {
+      umami.track(event, data);
+      return;
+    }
+    if (pendingFunnelEvents.length >= FUNNEL_QUEUE_LIMIT) pendingFunnelEvents.shift();
+    pendingFunnelEvents.push({ event, data });
+    if (funnelFlushTimer === null) {
+      let attempts = 0;
+      funnelFlushTimer = window.setInterval(() => {
+        attempts += 1;
+        const flushed = flushPendingFunnelEvents();
+        if ((flushed || attempts >= FUNNEL_FLUSH_MAX_ATTEMPTS) && funnelFlushTimer !== null) {
+          window.clearInterval(funnelFlushTimer);
+          funnelFlushTimer = null;
+        }
+      }, FUNNEL_FLUSH_INTERVAL_MS);
+    }
   } catch {
-    /* no-op — tracker absent or threw; checkout proceeds regardless */
+    /* no-op — analytics can never break checkout */
   }
+}
+
+/**
+ * Closed product-id vocabulary for analytics (#4934 round-4 F2): the
+ * resume path replays wm_checkout_product straight from the URL, so a
+ * crafted value must not inject unbounded cardinality into Umami. Unknown
+ * ids collapse to 'unknown'; checkout itself still receives the raw id
+ * (backend validates). tiers.json is generated from the catalog, so the
+ * allowlist is exactly the purchasable set for this build.
+ */
+const KNOWN_PRODUCT_IDS: ReadonlySet<string> = new Set(
+  (fallbackTiers as Array<{ monthlyProductId?: string; annualProductId?: string }>)
+    .flatMap((tier) => [tier.monthlyProductId, tier.annualProductId])
+    .filter((id): id is string => typeof id === 'string' && id.length > 0),
+);
+
+function bucketProductIdForAnalytics(productId: string): string {
+  return KNOWN_PRODUCT_IDS.has(productId) ? productId : 'unknown';
 }
 
 /**
@@ -277,12 +338,32 @@ export function initOverlay(onSuccess?: () => void): void {
   });
 }
 
+// Synchronous whole-start re-entrancy guard (#4934 round-4 F4):
+// `checkoutInFlight` is only set inside doCheckout, AFTER the awaited
+// ensureClerk() — rapid double-clicks both pass the entry check and
+// double-fire checkout-start (checkout itself stays single: doCheckout
+// re-checks the flag). This flag is set before any await and cleared
+// when startCheckout settles.
+let startCheckoutEntryInFlight = false;
+
 export async function startCheckout(
   productId: string,
   options?: { referralCode?: string; discountCode?: string; bypassPendingGuard?: boolean },
 ): Promise<boolean> {
   if (checkoutInFlight) return false;
+  if (startCheckoutEntryInFlight) return false;
+  startCheckoutEntryInFlight = true;
+  try {
+    return await startCheckoutInner(productId, options);
+  } finally {
+    startCheckoutEntryInFlight = false;
+  }
+}
 
+async function startCheckoutInner(
+  productId: string,
+  options?: { referralCode?: string; discountCode?: string; bypassPendingGuard?: boolean },
+): Promise<boolean> {
   let c: LoadedClerk;
   try {
     c = await ensureClerk();
@@ -295,7 +376,7 @@ export async function startCheckout(
   // Funnel (#4931): every /pro pricing CTA routes through here. authed:false
   // marks intent clicks that detour through the Clerk sign-in modal first.
   trackFunnelEvent('checkout-start', {
-    productId,
+    productId: bucketProductIdForAnalytics(productId),
     surface: 'pro-page',
     authed: Boolean(c.user),
   });
@@ -340,7 +421,8 @@ export async function tryResumeCheckoutFromUrl(): Promise<boolean> {
   const { productId, referralCode, discountCode } = intent;
   // Funnel (#4931): post-sign-in auto-resume — the pre-auth click already
   // fired checkout-start{authed:false}; this marks the resumed attempt.
-  trackFunnelEvent('checkout-start', { productId, surface: 'pro-resume', authed: true });
+  // productId is URL-derived here — bucketed for analytics (round-4 F2).
+  trackFunnelEvent('checkout-start', { productId: bucketProductIdForAnalytics(productId), surface: 'pro-resume', authed: true });
   return doCheckout(productId, { referralCode, discountCode });
 }
 

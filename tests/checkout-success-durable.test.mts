@@ -47,6 +47,24 @@ function installWindow(
   return calls;
 }
 
+describe('checkout-start product bucketing (#4934 round-4 F2)', () => {
+  afterEach(() => {
+    delete (globalThis as { window?: unknown }).window;
+  });
+
+  it('collapses unknown product ids to "unknown" and passes known ids through', async () => {
+    const analytics = await import('../src/services/analytics.ts');
+    analytics.resetAnalyticsForTesting();
+    const calls = installWindow(new MemoryStorage(), { withUmami: true });
+
+    analytics.trackCheckoutStart('pdt_evil_injected_via_url', true, 'dashboard-resume');
+    analytics.trackCheckoutStart('pdt_0Nbtt71uObulf7fGXhQup', true);
+
+    assert.equal(calls[0]!.data!.productId, 'unknown', 'crafted id must not reach analytics verbatim');
+    assert.equal(calls[1]!.data!.productId, 'pdt_0Nbtt71uObulf7fGXhQup', 'catalog id must pass through');
+  });
+});
+
 describe('durable checkout-success', () => {
   afterEach(() => {
     delete (globalThis as { window?: unknown }).window;

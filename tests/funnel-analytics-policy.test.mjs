@@ -76,7 +76,7 @@ test('/pro checkout service fires checkout-start on both paths', () => {
   // pass if the trackFunnelEvent calls were deleted around them. Extract
   // the actual checkout-start emissions and check each surface is wired
   // to one.
-  const emissions = src.match(/trackFunnelEvent\(\s*'checkout-start'[\s\S]{0,220}?\)/g) ?? [];
+  const emissions = src.match(/trackFunnelEvent\(\s*'checkout-start'[\s\S]{0,300}?\}\s*\)/g) ?? [];
   assert.ok(emissions.some((call) => call.includes("'pro-page'")),
     "no trackFunnelEvent('checkout-start', …surface:'pro-page') emission in startCheckout");
   assert.ok(emissions.some((call) => call.includes("'pro-resume'")),
@@ -109,4 +109,33 @@ test('checkout-failed status is bucketed to a closed vocabulary', () => {
   const analytics = read('src/services/analytics.ts');
   assert.ok(analytics.includes('CHECKOUT_FAILED_STATUSES.has(rawStatus)'),
     'trackCheckoutFailed no longer normalizes the URL-derived status — unbounded cardinality');
+});
+
+test('checkout-start product ids are bucketed on both surfaces (round-4 F2)', () => {
+  const analytics = read('src/services/analytics.ts');
+  assert.ok(analytics.includes('bucketProductIdForAnalytics(productId)'),
+    'dashboard trackCheckoutStart no longer buckets the (resume-path URL-derived) productId');
+  assert.ok(analytics.includes('Object.values(DODO_PRODUCTS)'),
+    'dashboard product allowlist no longer derives from the generated catalog');
+  const pro = read('pro-test/src/services/checkout.ts');
+  const emissions = pro.match(/trackFunnelEvent\(\s*'checkout-start'[\s\S]{0,300}?\}\s*\)/g) ?? [];
+  assert.equal(emissions.length, 2, 'expected exactly two /pro checkout-start emissions');
+  for (const call of emissions) {
+    assert.ok(call.includes('bucketProductIdForAnalytics('),
+      `/pro checkout-start emission no longer buckets productId: ${call.slice(0, 80)}…`);
+  }
+});
+
+test('/pro funnel events queue until the async tracker loads (round-4 F3)', () => {
+  const pro = read('pro-test/src/services/checkout.ts');
+  assert.ok(pro.includes('pendingFunnelEvents'),
+    '/pro trackFunnelEvent no longer queues — the mount-time pro-resume event drops when the async tracker has not loaded');
+  assert.ok(pro.includes('FUNNEL_FLUSH_MAX_ATTEMPTS'),
+    '/pro funnel flush poll no longer bounded');
+});
+
+test('/pro startCheckout has a synchronous re-entrancy guard (round-4 F4)', () => {
+  const pro = read('pro-test/src/services/checkout.ts');
+  assert.ok(pro.includes('startCheckoutEntryInFlight'),
+    'rapid double-clicks double-fire checkout-start without the whole-start guard');
 });
