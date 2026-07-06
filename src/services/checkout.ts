@@ -44,6 +44,7 @@ import {
   type CheckoutSuccessBannerState,
 } from './checkout-banner-state';
 import { loadActiveReferral } from './referral-capture';
+import { trackCheckoutStart } from './analytics';
 import { showDuplicateSubscriptionDialog } from './checkout-duplicate-dialog';
 import { showCheckoutPendingDialog } from './checkout-pending-dialog';
 import { resolvePlanDisplayName } from './checkout-plan-names';
@@ -749,6 +750,10 @@ export async function startCheckout(
   const fallbackToPricingPage = behavior?.fallbackToPricingPage ?? true;
 
   const user = getCurrentClerkUser();
+  // Funnel (#4931): every dashboard upgrade CTA routes through here, so one
+  // call site covers them all. Fires before the no-user branch so signed-out
+  // intent clicks are counted (flagged authed:false).
+  trackCheckoutStart(productId, Boolean(user));
   if (!user) {
     const intent = {
       productId,

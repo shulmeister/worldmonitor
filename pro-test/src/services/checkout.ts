@@ -31,6 +31,22 @@ import { DASHBOARD_CHECKOUT_SUCCESS_URL, DASHBOARD_CHECKOUT_RETURN_URL } from '.
 let checkoutInFlight = false;
 
 /**
+ * Funnel event via the raw Umami tracker (#4931). The /pro build has no
+ * analytics facade — the tracker script in index.html exposes window.umami
+ * once loaded; before that (or when blocked) this is a silent no-op.
+ * Analytics must never break checkout, hence the try/catch.
+ */
+function trackFunnelEvent(event: string, data?: Record<string, unknown>): void {
+  try {
+    (window as Window & {
+      umami?: { track: (event: string, data?: Record<string, unknown>) => void };
+    }).umami?.track(event, data);
+  } catch {
+    /* no-op — tracker absent or threw; checkout proceeds regardless */
+  }
+}
+
+/**
  * Phase machine for the checkout flow. Only `creating_checkout` drives
  * UI lock state. `awaiting_auth` is intentionally not exposed — while
  * the Clerk modal is open the pricing section is covered by the modal
@@ -276,6 +292,14 @@ export async function startCheckout(
     return false;
   }
 
+  // Funnel (#4931): every /pro pricing CTA routes through here. authed:false
+  // marks intent clicks that detour through the Clerk sign-in modal first.
+  trackFunnelEvent('checkout-start', {
+    productId,
+    surface: 'pro-page',
+    authed: Boolean(c.user),
+  });
+
   if (!c.user) {
     // Intent travels via afterSignInUrl / afterSignUpUrl — bound to
     // THIS specific openSignIn call. On successful sign-in, Clerk
@@ -314,6 +338,9 @@ export async function tryResumeCheckoutFromUrl(): Promise<boolean> {
   }
   if (!c.user) return false;
   const { productId, referralCode, discountCode } = intent;
+  // Funnel (#4931): post-sign-in auto-resume — the pre-auth click already
+  // fired checkout-start{authed:false}; this marks the resumed attempt.
+  trackFunnelEvent('checkout-start', { productId, surface: 'pro-resume', authed: true });
   return doCheckout(productId, { referralCode, discountCode });
 }
 

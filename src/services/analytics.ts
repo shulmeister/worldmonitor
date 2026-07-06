@@ -12,7 +12,7 @@ import { getClerkUserCreatedAt } from './clerk';
 
 const UMAMI_SCRIPT_SRC = 'https://abacus.worldmonitor.app/script.js';
 const UMAMI_WEBSITE_ID = 'e8800335-c853-46a8-8497-c993ed2f58bc';
-// data-domains is temporarily reduced to worldmonitor.app + happy.worldmonitor.app
+// data-domains is temporarily reduced to the worldmonitor.app hosts + happy
 // while upstream Umami issue #4183 (https://github.com/umami-software/umami/issues/4183)
 // is open — v3.1.0 has a race in prisma.sessionData.updateMany() that returns HTTP 500
 // from /api/send for 4-8% of requests across all listed hosts. Self-hosted Umami has no
@@ -20,7 +20,12 @@ const UMAMI_WEBSITE_ID = 'e8800335-c853-46a8-8497-c993ed2f58bc';
 // tracker self-disables when the current hostname isn't in data-domains — the same
 // mechanism that keeps energy.worldmonitor.app silent. Restore tech, finance, and
 // commodity once #4183 ships in a tagged release.
-const UMAMI_DOMAINS = 'worldmonitor.app,happy.worldmonitor.app';
+//
+// www.worldmonitor.app MUST be listed alongside the apex (#4931): the apex 301s
+// to www in production, and the tracker's data-domains check is an EXACT
+// hostname match (`!domains.includes(hostname)` → disabled) — with only the
+// apex listed, every event from the canonical host was silently dropped.
+const UMAMI_DOMAINS = 'worldmonitor.app,www.worldmonitor.app,happy.worldmonitor.app';
 const UMAMI_QUEUE_LIMIT = 50;
 const UMAMI_LOAD_ATTEMPT_LIMIT = 2;
 const UMAMI_LOAD_RETRY_DELAY_MS = 5_000;
@@ -94,6 +99,12 @@ const EVENTS = {
   'sign-up': true,
   'sign-out': true,
   'gate-hit': true,
+  // Conversion funnel (#4931) — pageview → gate-hit → checkout-start →
+  // checkout-success is the end-to-end funnel; the /pro page fires its own
+  // checkout-start via the raw tracker (separate build, same event name).
+  'checkout-start': true,
+  'checkout-success': true,
+  'checkout-failed': true,
   // Brief — open-rate lift measurement for U10's followed-country bias
   // (followed-countries plan U11). Fired from the dashboard cover card
   // and from the hosted magazine source-link clicks. `followed` flags
@@ -402,6 +413,34 @@ export function resetAnalyticsForTesting(): void {
 
 export function trackGateHit(feature: string): void {
   track('gate-hit', { feature });
+}
+
+// ---------------------------------------------------------------------------
+// Conversion funnel (#4931)
+// ---------------------------------------------------------------------------
+
+/**
+ * Fired when a checkout is initiated from the dashboard (any locked-panel
+ * CTA, settings upgrade card, banner, etc. — all route through
+ * `startCheckout`). `authed: false` marks intent clicks from signed-out
+ * users that detour through sign-in/`/pro` before a Dodo session exists.
+ */
+export function trackCheckoutStart(productId: string, authed: boolean): void {
+  track('checkout-start', { productId, surface: 'dashboard', authed });
+}
+
+/**
+ * Fired on the dashboard when a checkout return reconciles as success.
+ * `source` distinguishes the full-page return-URL path from the legacy
+ * overlay session-flag path (see panel-layout.ts checkout-return wiring).
+ */
+export function trackCheckoutSuccess(source: 'url-return' | 'overlay-flag'): void {
+  track('checkout-success', { source });
+}
+
+/** Fired when a checkout return reconciles as failed/declined/cancelled. */
+export function trackCheckoutFailed(rawStatus: string): void {
+  track('checkout-failed', { status: rawStatus });
 }
 
 // ---------------------------------------------------------------------------

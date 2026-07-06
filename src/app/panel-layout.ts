@@ -40,7 +40,7 @@ import { resolveNewsCategories, enabledNewsCategoryKeys } from '@/config/feed-re
 import { BETA_MODE } from '@/config/beta';
 import { t } from '@/services/i18n';
 import { getCurrentTheme } from '@/utils';
-import { trackCriticalBannerAction } from '@/services/analytics';
+import { trackCriticalBannerAction, trackCheckoutSuccess, trackCheckoutFailed } from '@/services/analytics';
 import { getStoredMapModePreference } from '@/services/map-mode-preference';
 import { loadWidgets, saveWidget, isProUser } from '@/services/widget-store';
 import type { CustomWidgetSpec } from '@/services/widget-store';
@@ -277,6 +277,9 @@ export class PanelLayoutManager implements AppModule {
     const returnedFromOverlay = consumePostCheckoutFlag();
     const returnedFromCheckout = returnResult.kind === 'success' || returnedFromOverlay;
     if (returnedFromCheckout) {
+      // Funnel (#4931): the purchase-complete signal on the client side.
+      // Queued by the analytics facade until Umami loads after first paint.
+      trackCheckoutSuccess(returnResult.kind === 'success' ? 'url-return' : 'overlay-flag');
       // Full-page return cleared its URL params; belt-and-braces clear
       // of the attempt record here catches the success path where the
       // overlay handler never ran (direct Dodo redirect).
@@ -294,6 +297,7 @@ export class PanelLayoutManager implements AppModule {
         email: getAuthState().user?.email ?? null,
       });
     } else if (returnResult.kind === 'failed') {
+      trackCheckoutFailed(returnResult.rawStatus);
       showCheckoutFailureBanner(returnResult.rawStatus);
     }
 

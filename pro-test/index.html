@@ -162,6 +162,12 @@
     }
     </script>
     <script src="https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit" async defer nonce="wm-static-bootstrap"></script>
+    <!-- Umami (#4931): the /pro page was the one funnel surface with no
+         analytics at all — pageviews + checkout-start now land in the same
+         Umami site as the dashboard so the funnel joins end-to-end.
+         data-domains must list www (exact-hostname match; apex 301s to www).
+         Static nonce satisfies the strict-dynamic CSP (same as Turnstile above). -->
+    <script defer src="https://abacus.worldmonitor.app/script.js" data-website-id="e8800335-c853-46a8-8497-c993ed2f58bc" data-domains="worldmonitor.app,www.worldmonitor.app" nonce="wm-static-bootstrap"></script>
   </head>
   <body>
     <div id="root"></div>
