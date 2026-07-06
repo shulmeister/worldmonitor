@@ -65,12 +65,12 @@ describe('checkout-start product bucketing (#4934 round-4 F2)', () => {
   });
 });
 
-describe('/pro funnel replay across the Dodo redirect (#4934 round-5)', () => {
+describe('/pro funnel replay across the Dodo redirect (#4934 rounds 5+6)', () => {
   afterEach(() => {
     delete (globalThis as { window?: unknown }).window;
   });
 
-  it('replays persisted checkout-start events with every field re-validated', async () => {
+  it('replays sanitized events and clears the marker ON DELIVERY (tracker present)', async () => {
     const analytics = await import('../src/services/analytics.ts');
     analytics.resetAnalyticsForTesting();
     const storage = new MemoryStorage();
@@ -84,7 +84,6 @@ describe('/pro funnel replay across the Dodo redirect (#4934 round-5)', () => {
 
     analytics.replayPendingProFunnelEvents();
 
-    assert.equal(storage.getItem('wm-pro-funnel-pending'), null, 'pending key must clear on replay');
     assert.deepEqual(calls, [
       {
         name: 'checkout-start',
@@ -95,9 +94,39 @@ describe('/pro funnel replay across the Dodo redirect (#4934 round-5)', () => {
         data: { productId: 'unknown', surface: 'pro-page', authed: true, replayed: true },
       },
     ], 'unknown events dropped; crafted fields collapsed to closed vocabularies');
+    assert.equal(storage.getItem('wm-pro-funnel-pending'), null,
+      'marker must clear once a replayed event actually delivers');
   });
 
-  it('is a no-op on ordinary boots and drops malformed storage', async () => {
+  it('survives a pre-delivery reload: marker persists (sanitized) until delivery (round-6)', async () => {
+    const analytics = await import('../src/services/analytics.ts');
+    analytics.resetAnalyticsForTesting();
+    const storage = new MemoryStorage();
+    storage.setItem('wm-pro-funnel-pending', JSON.stringify([
+      { event: 'checkout-start', data: { productId: 'pdt_crafted_junk', surface: 'pro-resume', authed: true } },
+      { event: 'not-a-real-event', data: {} },
+    ]));
+    // Tracker NOT loaded yet — replay can only queue in memory.
+    installWindow(storage, { withUmami: false });
+    analytics.replayPendingProFunnelEvents();
+
+    const persisted = JSON.parse(storage.getItem('wm-pro-funnel-pending') ?? 'null');
+    assert.deepEqual(persisted, [
+      { event: 'checkout-start', data: { productId: 'unknown', surface: 'pro-resume', authed: true } },
+    ], 'marker must survive pre-delivery, rewritten to the sanitized survivors only');
+
+    // Entitlement-watcher reload: in-memory queue dies, storage survives.
+    analytics.resetAnalyticsForTesting();
+    const calls = installWindow(storage, { withUmami: true });
+    analytics.replayPendingProFunnelEvents();
+
+    assert.deepEqual(calls, [
+      { name: 'checkout-start', data: { productId: 'unknown', surface: 'pro-resume', authed: true, replayed: true } },
+    ], 'the reload must retry the replay, not drop it');
+    assert.equal(storage.getItem('wm-pro-funnel-pending'), null, 'marker clears after the retry delivers');
+  });
+
+  it('is a no-op on ordinary boots and clears malformed/unreplayable storage', async () => {
     const analytics = await import('../src/services/analytics.ts');
     analytics.resetAnalyticsForTesting();
     const empty = new MemoryStorage();
@@ -111,7 +140,8 @@ describe('/pro funnel replay across the Dodo redirect (#4934 round-5)', () => {
     const stillNoCalls = installWindow(malformed, { withUmami: true });
     analytics.replayPendingProFunnelEvents();
     assert.deepEqual(stillNoCalls, []);
-    assert.equal(malformed.getItem('wm-pro-funnel-pending'), null, 'malformed payload must still be cleared');
+    assert.equal(malformed.getItem('wm-pro-funnel-pending'), null,
+      'unreplayable payload must be cleared so it cannot loop');
   });
 });
 

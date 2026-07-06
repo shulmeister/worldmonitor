@@ -140,6 +140,15 @@ function sendUmamiCall(call: QueuedUmamiCall): boolean {
     if (call.kind === 'track' && call.event === 'checkout-success') {
       clearPendingCheckoutSuccessMarker();
     }
+    // Same contract for /pro checkout-start replays (#4934 round-6): the
+    // handoff marker survives until a replayed event actually reaches the
+    // tracker — clearing at read time reopened the round-2 reload race.
+    // Only replayed events clear it (a live dashboard checkout-start
+    // delivering proves nothing about the queued replays). All replays
+    // flush in one synchronous loop, so first-delivery-clears is safe.
+    if (call.kind === 'track' && call.event === 'checkout-start' && call.data?.replayed === true) {
+      clearPendingProFunnelMarker();
+    }
     return true;
   } catch {
     return false;
@@ -519,36 +528,73 @@ export function replayPendingCheckoutSuccess(): void {
  * hook replays them here. Every field is re-validated against closed
  * vocabularies — sessionStorage is tab-local but still client-writable,
  * and replayed junk must not become analytics cardinality.
+ *
+ * Delivery contract (round-6): the marker is NOT cleared here. Replays
+ * enter the deferred queue, and the entitlement watcher can reload the
+ * page before it flushes — clearing at read time would drop the event
+ * permanently in exactly the race round-2 fixed for checkout-success.
+ * Instead the key is REWRITTEN with only the sanitized survivors (so
+ * junk can't loop forever) and removed in sendUmamiCall once a replayed
+ * event actually reaches the tracker.
  */
 const PRO_FUNNEL_PENDING_KEY = 'wm-pro-funnel-pending';
+
+function clearPendingProFunnelMarker(): void {
+  try {
+    window.sessionStorage.removeItem(PRO_FUNNEL_PENDING_KEY);
+  } catch {
+    // Storage unavailable — worst case is a duplicate replayed:true event
+    // on the next boot, the side we deliberately err on.
+  }
+}
 
 export function replayPendingProFunnelEvents(): void {
   let raw: string | null = null;
   try {
     raw = window.sessionStorage.getItem(PRO_FUNNEL_PENDING_KEY);
-    window.sessionStorage.removeItem(PRO_FUNNEL_PENDING_KEY);
   } catch {
     return;
   }
   if (!raw) return;
+
+  const sanitized: Array<{ productId: string; surface: 'pro-page' | 'pro-resume'; authed: boolean }> = [];
   try {
     const items: unknown = JSON.parse(raw);
-    if (!Array.isArray(items)) return;
-    for (const item of items.slice(0, 10)) {
-      if (!item || typeof item !== 'object') continue;
-      const { event, data } = item as { event?: unknown; data?: unknown };
-      if (event !== 'checkout-start' || !data || typeof data !== 'object') continue;
-      const d = data as Record<string, unknown>;
-      const surface = d.surface === 'pro-resume' ? 'pro-resume' : 'pro-page';
-      track('checkout-start', {
-        productId: bucketProductIdForAnalytics(String(d.productId ?? '')),
-        surface,
-        authed: Boolean(d.authed),
-        replayed: true,
-      });
+    if (Array.isArray(items)) {
+      for (const item of items.slice(0, 10)) {
+        if (!item || typeof item !== 'object') continue;
+        const { event, data } = item as { event?: unknown; data?: unknown };
+        if (event !== 'checkout-start' || !data || typeof data !== 'object') continue;
+        const d = data as Record<string, unknown>;
+        sanitized.push({
+          productId: bucketProductIdForAnalytics(String(d.productId ?? '')),
+          surface: d.surface === 'pro-resume' ? 'pro-resume' : 'pro-page',
+          authed: Boolean(d.authed),
+        });
+      }
     }
   } catch {
-    // Malformed storage — already removed above; drop.
+    // Malformed JSON — nothing replayable.
+  }
+
+  if (sanitized.length === 0) {
+    clearPendingProFunnelMarker();
+    return;
+  }
+
+  // Persist the sanitized survivors so a pre-delivery reload retries
+  // exactly these (bounded, closed-vocabulary), then queue the replays.
+  try {
+    window.sessionStorage.setItem(
+      PRO_FUNNEL_PENDING_KEY,
+      JSON.stringify(sanitized.map((data) => ({ event: 'checkout-start', data }))),
+    );
+  } catch {
+    // Rewrite failed — the original payload stays; sanitization re-runs
+    // on the next boot. Still safe to queue this boot's replays.
+  }
+  for (const data of sanitized) {
+    track('checkout-start', { ...data, replayed: true });
   }
 }
 

@@ -155,3 +155,13 @@ test('/pro checkout-start survives the Dodo redirect via sessionStorage handoff 
   assert.ok(layout.includes('replayPendingProFunnelEvents()'),
     'panel-layout boot no longer replays /pro funnel events');
 });
+
+test('/pro replay marker clears on DELIVERY, not on read (round-6)', () => {
+  const analytics = read('src/services/analytics.ts');
+  assert.ok(analytics.includes("call.data?.replayed === true"),
+    'sendUmamiCall no longer clears the pro-funnel marker on confirmed replay delivery');
+  assert.ok(analytics.includes('clearPendingProFunnelMarker()'),
+    'delivery-time pro-funnel marker clear is missing');
+  assert.ok(analytics.includes('JSON.stringify(sanitized.map'),
+    'replay no longer rewrites the marker with sanitized survivors — a pre-delivery reload would retry raw junk or nothing');
+});
