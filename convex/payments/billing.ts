@@ -86,7 +86,7 @@ function getDodoClient(): DodoPayments {
  * came from this path throwing on a missing customers row when both
  * the rawPayload and a same-user customers row still held the answer.
  */
-async function createCustomerPortalUrlForUser(
+export async function createCustomerPortalUrlForUser(
   ctx: Pick<ActionCtx, "runQuery">,
   userId: string,
 ): Promise<{ portal_url: string }> {

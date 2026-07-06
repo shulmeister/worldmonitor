@@ -16,7 +16,7 @@ const middlewareSource = readFileSync(resolve(__dirname, '../middleware.ts'), 'u
 const dockerfileSource = readFileSync(resolve(__dirname, '../Dockerfile'), 'utf-8');
 const dockerNginxSource = readFileSync(resolve(__dirname, '../docker/nginx.conf'), 'utf-8');
 const frontendDockerfileSource = readFileSync(resolve(__dirname, '../docker/Dockerfile'), 'utf-8');
-const SPA_HTML_CACHE_SOURCE = '/((?!api|mcp|a2a|ask|oauth|assets|blog|docs|embed|embed\\.html|favico|map-styles|data|textures|pro|sw\\.js|workbox-[a-f0-9]+\\.js|manifest\\.webmanifest|offline\\.html|robots\\.txt|sitemap\\.xml|llms\\.txt|llms-full\\.txt|openapi\\.yaml|openapi\\.json|auth\\.md|pricing\\.md|support\\.md|\\.well-known|wm-widget-sandbox\\.html|mcp-grant\\.html|mcp-grant).*)';
+const SPA_HTML_CACHE_SOURCE = '/((?!api|mcp|a2a|ask|oauth|assets|blog|docs|embed|embed\\.html|favico|map-styles|data|textures|pro|sw\\.js|workbox-[a-f0-9]+\\.js|manifest\\.webmanifest|offline\\.html|robots\\.txt|sitemap\\.xml|llms\\.txt|llms-full\\.txt|openapi\\.yaml|openapi\\.json|auth\\.md|pricing\\.md|support\\.md|agents\\.md|agent\\.txt|\\.well-known|wm-widget-sandbox\\.html|mcp-grant\\.html|mcp-grant).*)';
 const GLOBAL_SECURITY_HEADER_SOURCE = '/((?!docs|embed|embed\\.html).*)';
 const APP_ROOT_HOST_PATTERN = '^(?:(?:www|tech|finance|commodity|happy|energy)\\.)?worldmonitor\\.app$';
 const GLOBAL_CSP_INLINE_SCRIPT_HTML_FILES = [
@@ -1164,6 +1164,55 @@ describe('agent readiness: api-catalog + openapi build', () => {
     const itemHrefs = catalogEntry.item.map((i) => i.href);
     assert.ok(itemHrefs.includes('https://api.worldmonitor.app/'), 'item list must enumerate the REST API host root');
     assert.ok(itemHrefs.includes('https://worldmonitor.app/mcp'), 'item list must enumerate the MCP server');
+    assert.ok(
+      itemHrefs.includes('https://www.worldmonitor.app/docs/mcp'),
+      'item list must enumerate the docs MCP server (#4958 — it ran unadvertised for weeks)'
+    );
+  });
+
+  // #4958 — Mintlify serves a working docs MCP server (search/retrieval over
+  // the documentation) at /docs/mcp; it existed for weeks with zero
+  // advertisement anywhere. Every agent-facing discovery surface must name it
+  // so multi-surface MCP coverage is discoverable.
+  it('advertises the docs MCP server on every discovery surface', () => {
+    const docsMcpUrl = 'https://www.worldmonitor.app/docs/mcp';
+    for (const surface of ['llms.txt', 'agents.md', 'api/llms.txt']) {
+      const content = readFileSync(resolve(__dirname, `../public/${surface}`), 'utf-8');
+      assert.ok(content.includes(docsMcpUrl), `public/${surface} must advertise the docs MCP server`);
+    }
+  });
+
+  it('the docs MCP anchor describes itself with the first-party server-card (service-desc parity with product MCP)', () => {
+    const docsAnchor = apiCatalog.linkset.find((e) => e.anchor === 'https://www.worldmonitor.app/docs/mcp');
+    assert.ok(docsAnchor, 'api-catalog must carry a context object anchored at the docs MCP endpoint');
+    const desc = docsAnchor['service-desc'] ?? [];
+    // Must be the first-party card, NOT Mintlify's card (whose url 404s) — #4964 review.
+    assert.ok(
+      desc.some((d) => d.href === 'https://www.worldmonitor.app/.well-known/mcp/docs-server-card.json'),
+      'docs MCP anchor must advertise the first-party server-card as service-desc'
+    );
+    assert.ok(
+      !desc.some((d) => /\/docs\/\.well-known\/mcp\/server-card\.json/.test(d.href)),
+      'docs MCP anchor must NOT advertise Mintlify\'s card (its url points at a dead mintlify.dev endpoint)'
+    );
+  });
+
+  it('the first-party docs server-card advertises the working /docs/mcp endpoint, not the dead mintlify url', () => {
+    // The whole point of #4964's fix: a card-following agent must land on an
+    // endpoint that actually initializes. worldmonitor.mintlify.dev/mcp 404s;
+    // www.worldmonitor.app/docs/mcp returns 200. The committed card must carry
+    // the working facade URL and must not smuggle the mintlify.dev host.
+    const card = JSON.parse(
+      readFileSync(resolve(__dirname, '../public/.well-known/mcp/docs-server-card.json'), 'utf-8')
+    );
+    const WORKING = 'https://www.worldmonitor.app/docs/mcp';
+    assert.equal(card.url, WORKING, 'docs card url must be the working /docs/mcp facade');
+    assert.equal(card.serverUrl, WORKING, 'docs card serverUrl must be the working /docs/mcp facade');
+    assert.ok(
+      !JSON.stringify({ url: card.url, serverUrl: card.serverUrl }).includes('mintlify.dev'),
+      'docs card endpoint fields must not point at the dead mintlify.dev host'
+    );
+    assert.ok(Array.isArray(card.tools) && card.tools.length >= 1, 'docs card must list at least one tool');
   });
 
   it('the api host root has its own context object', () => {
@@ -1220,6 +1269,7 @@ describe('agent readiness: api-catalog + openapi build', () => {
       'service-meta must advertise the live product-catalog JSON endpoint'
     );
     assert.ok(hrefs.includes('https://worldmonitor.app/support.md'), 'service-meta must advertise support.md');
+    assert.ok(hrefs.includes('https://worldmonitor.app/agents.md'), 'service-meta must advertise agents.md (#4952)');
     // The Commerce spec lives outside the root openapi bundle (size budget,
     // #4853) — without this link no advertised descriptor reaches it
     // (post-#4867 review finding); Mintlify serves the raw YAML at this URL.
@@ -1606,11 +1656,12 @@ describe('agent readiness: auth.md walkthrough', () => {
   });
 
   // pricing.md and support.md are advertised in api-catalog service-meta and
-  // llms.txt (#4854/#4857), so they get the same three-way pinning as auth.md:
+  // llms.txt (#4854/#4857), agents.md is the agent-discovery entry point
+  // (#4952), so they get the same three-way pinning as auth.md:
   // explicit markdown Content-Type + CORS, catch-all exclusion (deleting or
   // renaming the static file must 404, not silently serve the dashboard HTML
   // misleading-200 the journey runs flagged), and this guard.
-  for (const mdPath of ['/pricing.md', '/support.md']) {
+  for (const mdPath of ['/pricing.md', '/support.md', '/agents.md']) {
     it(`serves ${mdPath} as markdown and keeps it off the SPA catch-all`, () => {
       assert.equal(getHeaderValueForSource(mdPath, 'Content-Type'), 'text/markdown; charset=utf-8');
       assert.equal(getHeaderValueForSource(mdPath, 'Access-Control-Allow-Origin'), '*');
@@ -1626,6 +1677,22 @@ describe('agent readiness: auth.md walkthrough', () => {
       );
     });
   }
+
+  // /agent.txt (#4958 follow-up): the when-to-use agent-instruction file
+  // (agent.txt convention; telnyx-parity). Same three-way pinning, but plain
+  // text rather than markdown.
+  it('serves /agent.txt as plain text and keeps it off the SPA catch-all', () => {
+    assert.equal(getHeaderValueForSource('/agent.txt', 'Content-Type'), 'text/plain; charset=utf-8');
+    assert.equal(getHeaderValueForSource('/agent.txt', 'Access-Control-Allow-Origin'), '*');
+    const catchAll = vercelConfig.rewrites.find((r) =>
+      r.destination === DASHBOARD_HTML_DESTINATION && r.source.startsWith('/((?!')
+    );
+    assert.ok(catchAll.source.includes('|agent\\.txt|'), 'SPA catch-all rewrite must exclude /agent.txt');
+    assert.ok(SPA_HTML_CACHE_SOURCE.includes('|agent\\.txt|'), 'HTML cache catch-all must exclude /agent.txt');
+    const agentTxt = readFileSync(resolve(__dirname, '../public/agent.txt'), 'utf-8');
+    assert.match(agentTxt, /When to use/i, 'agent.txt must carry when-to-use guidance');
+    assert.ok(agentTxt.includes('https://worldmonitor.app/mcp'), 'agent.txt must point at the MCP server');
+  });
 });
 
 // PR history: #3204 / #3206 forced the resvg linux-x64-gnu native
@@ -1698,6 +1765,22 @@ describe('agent readiness: homepage Link headers', () => {
         'mcp-server-card rel must carry anchor="/mcp"'
       );
 
+      // The docs MCP server (#4958) is advertised in the Link header directly —
+      // header-first crawlers should not have to follow rel="api-catalog" to
+      // discover the second MCP surface. Same rel as the product card, but
+      // anchored to /docs/mcp (the card describes the docs endpoint). We
+      // advertise a FIRST-PARTY card (/.well-known/mcp/docs-server-card.json),
+      // NOT Mintlify's /docs/.well-known/mcp/server-card.json, because that
+      // card's url points at worldmonitor.mintlify.dev/mcp which 404s on
+      // initialize — a card-following agent would land on a dead endpoint
+      // (#4964 review). The first-party card advertises the working
+      // /docs/mcp facade.
+      assert.match(
+        linkHeader.value,
+        /<\/\.well-known\/mcp\/docs-server-card\.json>[^,]*rel="mcp-server-card"[^,]*anchor="\/docs\/mcp"/,
+        'docs mcp-server-card rel must point at the first-party /.well-known/mcp/docs-server-card.json with anchor="/docs/mcp"'
+      );
+
       // `service-desc` is advertised twice — the JSON spec (/openapi.json,
       // parseable by JSON-only scanners like ora.ai/orank) first, then the
       // human-readable YAML (/openapi.yaml). Both must be present.
@@ -1713,13 +1796,15 @@ describe('agent readiness: homepage Link headers', () => {
       );
 
       // Target URIs must be root-relative (start with /, not http://).
-      // One target per required rel, plus the extra /openapi.json service-desc
-      // (service-desc is the only rel advertised with two targets).
+      // One target per required rel, plus two rels advertised with a second
+      // target: service-desc (/openapi.json + /openapi.yaml) and
+      // mcp-server-card (product /mcp card + docs /docs/mcp card) — hence +2.
+      const EXTRA_DOUBLE_ADVERTISED_RELS = 2;
       const targetMatches = [...linkHeader.value.matchAll(/<([^>]+)>/g)];
       assert.strictEqual(
         targetMatches.length,
-        requiredRels.length + 1,
-        `expected exactly ${requiredRels.length + 1} link targets, got ${targetMatches.length}`
+        requiredRels.length + EXTRA_DOUBLE_ADVERTISED_RELS,
+        `expected exactly ${requiredRels.length + EXTRA_DOUBLE_ADVERTISED_RELS} link targets, got ${targetMatches.length}`
       );
       for (const [, target] of targetMatches) {
         assert.ok(
@@ -1785,6 +1870,141 @@ describe('agent readiness: Content-Signal declarations', () => {
       headerValue(),
       'robots.txt Content-Signal must match the vercel.json header value'
     );
+  });
+
+  it('every Content-Signal line in robots.txt matches the header (multi-group)', () => {
+    // The AI-agent groups added in #4952 carry their own Content-Signal
+    // directive; none of the copies may drift from the origin-wide header.
+    const signalLines = robotsSource
+      .split('\n')
+      .filter((l) => l.startsWith('Content-Signal:'));
+    assert.ok(signalLines.length >= 1, 'robots.txt must declare Content-Signal');
+    for (const line of signalLines) {
+      assert.strictEqual(
+        line.slice('Content-Signal:'.length).trim(),
+        headerValue(),
+        'every robots.txt Content-Signal must match the vercel.json header value'
+      );
+    }
+  });
+});
+
+// #4952 — three-tier AI crawler policy. A named `User-agent` group REPLACES
+// the `*` group for that crawler (robots.txt groups do not inherit), so the
+// AI search/assistant allow-group must restate the full `*` rule set or those
+// crawlers would lose the /api/ protections. The training-only group must
+// stay a hard `Disallow: /`.
+describe('agent readiness: robots.txt AI crawler policy', () => {
+  const robotsSource = readFileSync(resolve(__dirname, '../public/robots.txt'), 'utf-8');
+
+  // Minimal robots.txt group parser: consecutive User-agent lines share one
+  // group; a blank line or a User-agent line following rules starts a new one;
+  // comments never end a group.
+  const parseGroups = (source) => {
+    const groups = [];
+    let current = null;
+    for (const raw of source.split('\n')) {
+      const line = raw.trim();
+      if (line === '') {
+        current = null;
+        continue;
+      }
+      if (line.startsWith('#')) continue;
+      const colon = line.indexOf(':');
+      if (colon === -1) continue;
+      const key = line.slice(0, colon).trim().toLowerCase();
+      const value = line.slice(colon + 1).trim();
+      if (key === 'user-agent') {
+        if (!current || current.rules.length > 0) {
+          current = { agents: [], rules: [] };
+          groups.push(current);
+        }
+        current.agents.push(value.toLowerCase());
+      } else if (current && (key === 'allow' || key === 'disallow')) {
+        current.rules.push(`${key}: ${value}`);
+      }
+    }
+    return groups;
+  };
+
+  const groups = parseGroups(robotsSource);
+  const starGroup = groups.find((g) => g.agents.includes('*'));
+  const aiAllowGroup = groups.find((g) => g.agents.includes('gptbot'));
+  const trainingBlockGroup = groups.find((g) => g.agents.includes('ccbot'));
+
+  // The agents AEO scanners score by name (search/assistant tier).
+  const REQUIRED_AI_SEARCH_AGENTS = [
+    'gptbot',
+    'claudebot',
+    'chatgpt-user',
+    'perplexitybot',
+    'google-extended',
+    'applebot-extended',
+  ];
+  const BLOCKED_TRAINING_AGENTS = ['ccbot', 'bytespider', 'anthropic-ai'];
+
+  it('explicitly allows the AI search/assistant agents in one named group', () => {
+    assert.ok(aiAllowGroup, 'robots.txt must have a named AI search/assistant group (GPTBot et al.)');
+    for (const agent of REQUIRED_AI_SEARCH_AGENTS) {
+      assert.ok(
+        aiAllowGroup.agents.includes(agent),
+        `AI search/assistant group must include User-agent: ${agent}`
+      );
+    }
+    assert.ok(
+      aiAllowGroup.rules.includes('allow: /'),
+      'AI search/assistant group must Allow: /'
+    );
+  });
+
+  it('keeps the AI allow-group rules in parity with the `*` group', () => {
+    assert.ok(starGroup, 'robots.txt must have a `User-agent: *` group');
+    assert.deepStrictEqual(
+      [...aiAllowGroup.rules].sort(),
+      [...starGroup.rules].sort(),
+      'the AI allow-group must restate the exact `*` rule set — named groups do not inherit, so a drift here silently opens /api/ (or blocks paths) for AI crawlers'
+    );
+  });
+
+  it('disallows the bulk training-only scrapers entirely', () => {
+    assert.ok(trainingBlockGroup, 'robots.txt must have a training-scraper block group (CCBot et al.)');
+    for (const agent of BLOCKED_TRAINING_AGENTS) {
+      assert.ok(
+        trainingBlockGroup.agents.includes(agent),
+        `training block group must include User-agent: ${agent}`
+      );
+    }
+    assert.deepStrictEqual(
+      trainingBlockGroup.rules,
+      ['disallow: /'],
+      'training-only scrapers must be blocked with exactly `Disallow: /`'
+    );
+  });
+
+  it('never lists an allowed AI agent in the blocked group (and vice versa)', () => {
+    for (const agent of REQUIRED_AI_SEARCH_AGENTS) {
+      assert.ok(
+        !trainingBlockGroup.agents.includes(agent),
+        `${agent} drives citations and must not be in the blocked group`
+      );
+    }
+    for (const agent of BLOCKED_TRAINING_AGENTS) {
+      assert.ok(
+        !aiAllowGroup.agents.includes(agent),
+        `${agent} is training-only and must not be in the allow group`
+      );
+    }
+  });
+
+  it('every crawl-permitting group keeps /api/ protected', () => {
+    for (const group of groups) {
+      if (group.rules.includes('allow: /')) {
+        assert.ok(
+          group.rules.includes('disallow: /api/'),
+          `group [${group.agents.join(', ')}] allows crawling but does not restate Disallow: /api/`
+        );
+      }
+    }
   });
 });
 

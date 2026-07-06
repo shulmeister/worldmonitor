@@ -115,6 +115,12 @@
         }
       })();
     </script>
+    <!-- Umami (#4931): the welcome landing had no analytics — pageviews plus
+         data-umami-event CTA clicks (see src/welcome/*) land in the same Umami
+         site as the dashboard so acquisition → dashboard → checkout joins.
+         data-domains must list www (exact-hostname match; apex 301s to www).
+         Static nonce satisfies the strict-dynamic CSP (deploy-config CSP). -->
+    <script async defer src="https://abacus.worldmonitor.app/script.js" data-website-id="e8800335-c853-46a8-8497-c993ed2f58bc" data-domains="worldmonitor.app,www.worldmonitor.app,happy.worldmonitor.app" nonce="wm-static-bootstrap"></script>
     <title>World Monitor — Free Real-Time Global Intelligence Dashboard</title>
     <meta name="description" content="By the time it's news, you already knew. Conflicts, shipping chokepoints, military flights, markets and cyber on one free live world map, with AI analysis. No signup." />
     <meta name="keywords" content="global intelligence dashboard, real-time world map, geopolitical monitoring, conflict tracking, OSINT dashboard, market monitoring, shipping chokepoints, satellite tracking, situational awareness, free intelligence platform, world news dashboard, AI news analysis" />

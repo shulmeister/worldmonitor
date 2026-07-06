@@ -920,8 +920,8 @@ function makePrediction(domain, region, title, probability, confidence, timeHori
     title,
     scenario: '',
     feedSummary: '',
-    probability: Math.round(Math.max(0, Math.min(1, probability)) * 1000) / 1000,
-    confidence: Math.round(Math.max(0, Math.min(1, confidence)) * 1000) / 1000,
+    probability: Math.round(Math.max(0, Math.min(1, Number.isFinite(probability) ? probability : 0)) * 1000) / 1000,
+    confidence: Math.round(Math.max(0, Math.min(1, Number.isFinite(confidence) ? confidence : 0)) * 1000) / 1000,
     timeHorizon,
     signals,
     cascades: [],
@@ -1163,7 +1163,7 @@ function detectSupplyChainScenarios(inputs) {
 
     const aisGaps = anomalies.filter(a =>
       (a.type === 'ais_gaps' || a.type === 'ais_gap') &&
-      (a.region || a.zone || '').toLowerCase().includes(route.toLowerCase()),
+      textIncludesTerm((a.region || a.zone || '').toLowerCase(), route.toLowerCase()),
     );
     if (aisGaps.length > 0) {
       signals.push({ type: 'ais_gap', value: `${aisGaps.length} AIS gap anomalies near ${route}`, weight: 0.3 });
@@ -1171,7 +1171,7 @@ function detectSupplyChainScenarios(inputs) {
     }
 
     const nearbyJam = jamming.filter(j =>
-      (j.region || j.zone || j.name || '').toLowerCase().includes(route.toLowerCase()),
+      textIncludesTerm((j.region || j.zone || j.name || '').toLowerCase(), route.toLowerCase()),
     );
     if (nearbyJam.length > 0) {
       signals.push({ type: 'gps_jamming', value: `GPS interference near ${route}`, weight: 0.2 });
@@ -1643,7 +1643,7 @@ function detectPoliticalScenarios(inputs) {
 
     const protestAnomalies = anomalies.filter(a =>
       (a.type === 'protest' || a.type === 'unrest') &&
-      (a.country || a.region || '').toLowerCase().includes(countryName),
+      textIncludesTerm((a.country || a.region || '').toLowerCase(), countryName),
     );
     if (protestAnomalies.length > 0) {
       const maxZ = Math.max(...protestAnomalies.map(a => a.zScore || a.z_score || 0));
@@ -1711,7 +1711,7 @@ function detectMilitaryScenarios(inputs) {
 
     const milFlights = anomalies.filter(a =>
       (a.type === 'military_flights' || a.type === 'military') &&
-      [region, theaterLabel, theaterId].some((part) => part && (a.region || a.theater || '').toLowerCase().includes(part.toLowerCase())),
+      [region, theaterLabel, theaterId].some((part) => part && textIncludesTerm((a.region || a.theater || '').toLowerCase(), part.toLowerCase())),
     );
     if (milFlights.length > 0) {
       const maxZ = Math.max(...milFlights.map(a => a.zScore || a.z_score || 0));
@@ -1823,7 +1823,7 @@ function detectInfraScenarios(inputs) {
     let sourceCount = 1;
 
     const relatedCyber = cyber.filter(t =>
-      (t.country || t.target || t.region || '').toLowerCase().includes(countryLower),
+      textIncludesTerm((t.country || t.target || t.region || '').toLowerCase(), countryLower),
     );
     if (relatedCyber.length > 0) {
       signals.push({ type: 'cyber', value: `${relatedCyber.length} cyber threats targeting ${country}`, weight: 0.3 });
@@ -1831,7 +1831,7 @@ function detectInfraScenarios(inputs) {
     }
 
     const nearbyJam = jamming.filter(j =>
-      (j.country || j.region || j.name || '').toLowerCase().includes(countryLower),
+      textIncludesTerm((j.country || j.region || j.name || '').toLowerCase(), countryLower),
     );
     if (nearbyJam.length > 0) {
       signals.push({ type: 'gps_jamming', value: `GPS interference in ${country}`, weight: 0.2 });
@@ -2057,6 +2057,30 @@ function tokenizeText(text) {
     .filter(token => token.length >= 3);
 }
 
+// Word-boundary term matching to prevent substring false positives
+// (Mali matching Somalia, Niger matching Nigeria, Iran matching Tirana).
+// Boundary class mirrors the tokenizeText delimiter so both matchers agree.
+// A plural suffix on the text side still counts — attacks/elections must
+// match the singular hints — but a term nested inside a DIFFERENT word
+// never does. "es" is only a plural after sibilants (gas→gases, tax→taxes);
+// allowing it globally made "war" match "wares".
+const TERM_MATCH_REGEX_CACHE_MAX = 4000;
+const termMatchRegexCache = new Map();
+function textIncludesTerm(lowerText, lowerTerm) {
+  if (!lowerText || !lowerTerm) return false;
+  let re = termMatchRegexCache.get(lowerTerm);
+  if (!re) {
+    if (termMatchRegexCache.size >= TERM_MATCH_REGEX_CACHE_MAX) {
+      termMatchRegexCache.delete(termMatchRegexCache.keys().next().value);
+    }
+    const escaped = lowerTerm.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const pluralSuffix = /(?:s|x|z|ch|sh)$/.test(lowerTerm) ? '(?:es)?' : 's?';
+    re = new RegExp(`(?:^|[^a-z0-9])${escaped}${pluralSuffix}(?:[^a-z0-9]|$)`);
+    termMatchRegexCache.set(lowerTerm, re);
+  }
+  return re.test(lowerText);
+}
+
 function uniqueLowerTerms(terms) {
   return [...new Set((terms || [])
     .map(term => (term || '').toLowerCase().trim())
@@ -2069,7 +2093,7 @@ function countTermMatches(text, terms) {
   let score = 0;
   for (const term of uniqueLowerTerms(terms)) {
     if (term.length < 3) continue;
-    if (!lower.includes(term)) continue;
+    if (!textIncludesTerm(lower, term)) continue;
     hits += 1;
     score += term.length > 8 ? 4 : term.length > 5 ? 3 : 2;
   }
@@ -2110,16 +2134,16 @@ function computeHeadlineRelevance(headline, terms, domain, options = {}) {
   const tagMismatch = headlineTags.length > 0 && expectedTags.size > 0 && !tagOverlap;
   let score = regionScore + (tagOverlap ? 3 : 0) - (tagMismatch ? 4 : 0);
   for (const hint of getDomainTerms(domain)) {
-    if (lower.includes(hint)) score += 1;
+    if (textIncludesTerm(lower, hint)) score += 1;
   }
   const titleTokens = options.titleTokens || [];
   for (const token of titleTokens) {
-    if (lower.includes(token)) score += 2;
+    if (textIncludesTerm(lower, token)) score += 2;
   }
   if (options.requireRegion && regionHits === 0 && !tagOverlap) return 0;
   if (options.requireSemantic) {
-    const domainHits = getDomainTerms(domain).filter(hint => lower.includes(hint)).length;
-    const titleHits = titleTokens.filter(token => lower.includes(token)).length;
+    const domainHits = getDomainTerms(domain).filter(hint => textIncludesTerm(lower, hint)).length;
+    const titleHits = titleTokens.filter(token => textIncludesTerm(lower, token)).length;
     if (domainHits === 0 && titleHits === 0) return 0;
   }
   return Math.max(0, score);
@@ -2137,7 +2161,7 @@ function computeMarketMatchScore(pred, marketTitle, regionTerms, options = {}) {
   let score = regionScore + (tagOverlap ? 2 : 0) - (tagMismatch ? 5 : 0);
   let domainHits = 0;
   for (const hint of getDomainTerms(pred.domain)) {
-    if (lower.includes(hint)) {
+    if (textIncludesTerm(lower, hint)) {
       domainHits += 1;
       score += 1;
     }
@@ -2145,7 +2169,7 @@ function computeMarketMatchScore(pred, marketTitle, regionTerms, options = {}) {
   let titleHits = 0;
   const titleTokens = options.titleTokens || extractMeaningfulTokens(pred.title, regionTerms);
   for (const token of titleTokens) {
-    if (lower.includes(token)) {
+    if (textIncludesTerm(lower, token)) {
       titleHits += 1;
       score += 2;
     }
@@ -2165,7 +2189,8 @@ function detectFromPredictionMarkets(inputs) {
   const markets = inputs.predictionMarkets?.geopolitical || [];
 
   for (const m of markets) {
-    const yesPrice = (m.yesPrice || 50) / 100;
+    if (!Number.isFinite(m?.yesPrice)) continue;
+    const yesPrice = m.yesPrice / 100;
     if (yesPrice < 0.6 || yesPrice > 0.9) continue;
     const tags = tagRegions(m.title);
     if (tags.length === 0) continue;
@@ -2336,6 +2361,7 @@ function calibrateWithMarkets(predictions, markets) {
         return { market: m, sameMacroRegion, ...match };
       })
       .filter(item => {
+        if (!Number.isFinite(item.market.yesPrice)) return false; // a price-less anchor would blend toward a fabricated 50%
         if (item.tagMismatch && item.regionHits === 0) return false;
         const hasSpecificRegionSignal = item.regionHits > 0 || item.tagOverlap;
         const hasSemanticOverlap = item.titleHits > 0 || item.domainHits > 0;
@@ -2351,7 +2377,7 @@ function calibrateWithMarkets(predictions, markets) {
     const best = candidates[0];
     const match = best?.market || null;
     if (match) {
-      const marketProb = (match.yesPrice || 50) / 100;
+      const marketProb = match.yesPrice / 100;
       pred.calibration = {
         marketTitle: match.title,
         marketPrice: +marketProb.toFixed(3),
@@ -2414,13 +2440,24 @@ function getSearchTermsForRegion(region) {
   if (!countryEntry) {
     const regionLower = region.toLowerCase();
     const regionBase = region.replace(/\s*\([^)]*\)\s*$/, '').toLowerCase(); // strip "(Zaire)", "(Burma)", etc.
+    // Exact name match always wins; containment falls back to the LONGEST
+    // contained name so "DR Congo" resolves to DR Congo, never Congo, and
+    // "Guinea-Bissau" / "Papua New Guinea" never inherit Guinea's terms.
+    let matched = null;
     for (const [, entry] of Object.entries(codes)) {
       const nameLower = entry.name.toLowerCase();
-      if (nameLower === regionLower || nameLower === regionBase || regionLower.includes(nameLower)) {
-        terms.push(entry.name);
-        terms.push(...entry.keywords);
+      if (nameLower === regionLower || nameLower === regionBase) {
+        matched = entry;
         break;
       }
+      if (textIncludesTerm(regionLower, nameLower)
+        && (!matched || nameLower.length > matched.name.length)) {
+        matched = entry;
+      }
+    }
+    if (matched) {
+      terms.push(matched.name);
+      terms.push(...matched.keywords);
     }
   }
 

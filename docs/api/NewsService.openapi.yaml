@@ -662,7 +662,12 @@ components:
                 corroborationCount:
                     type: integer
                     format: int32
-                    description: Number of distinct sources that reported the same story in this digest cycle.
+                    description: |-
+                        Number of distinct sources that reported the same story in this digest
+                         cycle. "Same story" is determined by edit-tolerant story-identity
+                         clustering (headlines describing one event with different wording,
+                         ordering, source suffixes, truncation, or morphology corroborate each
+                         other) — not exact-title matching. See shared/story-identity.js.
                 storyMeta:
                     $ref: '#/components/schemas/StoryMeta'
                 snippet:
@@ -734,7 +739,11 @@ components:
                 sourceCount:
                     type: integer
                     format: int32
-                    description: Number of unique sources that reported this story (cached from Redis Set).
+                    description: |-
+                        Number of unique sources reporting this story in the CURRENT digest
+                         cycle (batch corroboration from fuzzy story clustering, #4919;
+                         defaults to 1 for unclustered items). The cross-cycle Redis source
+                         set (story:sources:v1) feeds importance scoring, not this field.
                 phase:
                     type: string
                     enum:

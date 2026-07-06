@@ -27,6 +27,7 @@ import {
   computeConfidence,
   computeHeadlineRelevance,
   computeMarketMatchScore,
+  getSearchTermsForRegion,
   sanitizeForPrompt,
   parseLLMScenarios,
   validateScenarios,
@@ -308,6 +309,278 @@ describe('calibrateWithMarkets', () => {
     calibrateWithMarkets([pred], markets);
     assert.equal(pred.calibration, null);
     assert.equal(pred.probability, 0.668);
+  });
+});
+
+describe('word-boundary term matching: no substring false positives (#4933)', () => {
+  it('calibrateWithMarkets: Mali forecast is not calibrated by a Somalia market', () => {
+    const pred = makePrediction('political', 'Mali', 'Political instability: Mali', 0.7, 0.6, '30d', []);
+    calibrateWithMarkets([pred], {
+      geopolitical: [{ title: "Will Somalia's government collapse in 2026?", yesPrice: 30, source: 'polymarket', volume: 50000 }],
+    });
+    assert.equal(pred.calibration, null);
+    assert.equal(pred.probability, 0.7);
+  });
+
+  it('calibrateWithMarkets: Niger forecast is not calibrated by a Nigeria market', () => {
+    const pred = makePrediction('political', 'Niger', 'Political instability: Niger', 0.7, 0.6, '30d', []);
+    calibrateWithMarkets([pred], {
+      geopolitical: [{ title: 'Will Nigeria hold peaceful elections in 2026?', yesPrice: 80, source: 'polymarket', volume: 50000 }],
+    });
+    assert.equal(pred.calibration, null);
+    assert.equal(pred.probability, 0.7);
+  });
+
+  it('detectInfraScenarios: Somalia cyber threat does not boost a Mali outage', () => {
+    const preds = detectInfraScenarios({
+      outages: [{ country: 'Mali', severity: 'major' }],
+      cyberThreats: [{ country: 'Somalia', type: 'ddos' }],
+      gpsJamming: [],
+    });
+    assert.equal(preds.length, 1);
+    assert.equal(preds[0].probability, 0.4);
+    assert.deepEqual(preds[0].signals.map(s => s.type), ['outage']);
+  });
+
+  it('detectInfraScenarios: same-country cyber threat still boosts (positive control)', () => {
+    const preds = detectInfraScenarios({
+      outages: [{ country: 'Mali', severity: 'major' }],
+      cyberThreats: [{ country: 'Mali', type: 'ddos' }],
+      gpsJamming: [],
+    });
+    assert.equal(preds[0].probability, 0.55);
+    assert.ok(preds[0].signals.some(s => s.type === 'cyber'));
+  });
+
+  it('detectInfraScenarios: possessive form still matches across the boundary', () => {
+    const preds = detectInfraScenarios({
+      outages: [{ country: 'Mali', severity: 'major' }],
+      cyberThreats: [{ target: "Mali's banking sector", type: 'ddos' }],
+      gpsJamming: [],
+    });
+    assert.ok(preds[0].signals.some(s => s.type === 'cyber'));
+  });
+
+  it('detectPoliticalScenarios: Nigeria protest anomaly does not boost a Niger forecast', () => {
+    const preds = detectPoliticalScenarios({
+      ciiScores: [{ code: 'NE', name: 'Niger', score: 70, level: 'high', trend: 'rising', components: { unrest: 60 } }],
+      unrestEvents: [],
+      temporalAnomalies: [{ type: 'protest', country: 'Nigeria', zScore: 3.2 }],
+    });
+    assert.equal(preds.length, 1);
+    assert.ok(!preds[0].signals.some(s => s.type === 'anomaly'));
+  });
+
+  it('detectPoliticalScenarios: same-country protest anomaly still boosts (positive control)', () => {
+    const preds = detectPoliticalScenarios({
+      ciiScores: [{ code: 'NE', name: 'Niger', score: 70, level: 'high', trend: 'rising', components: { unrest: 60 } }],
+      unrestEvents: [],
+      temporalAnomalies: [{ type: 'protest', country: 'Niger', zScore: 3.2 }],
+    });
+    assert.ok(preds[0].signals.some(s => s.type === 'anomaly'));
+  });
+
+  it('detectSupplyChainScenarios: route name nested in another word does not attach AIS signals', () => {
+    const preds = detectSupplyChainScenarios({
+      chokepoints: { routes: [{ route: 'Suez', riskScore: 80 }] },
+      temporalAnomalies: [{ type: 'ais_gaps', region: 'Suezmax anchorage zone' }],
+      gpsJamming: [],
+    });
+    assert.equal(preds.length, 1);
+    assert.ok(!preds[0].signals.some(s => s.type === 'ais_gap'));
+  });
+
+  it('detectSupplyChainScenarios: route name as a standalone word still matches (positive control)', () => {
+    const preds = detectSupplyChainScenarios({
+      chokepoints: { routes: [{ route: 'Suez', riskScore: 80 }] },
+      temporalAnomalies: [{ type: 'ais_gaps', region: 'Suez canal north entrance' }],
+      gpsJamming: [],
+    });
+    assert.ok(preds[0].signals.some(s => s.type === 'ais_gap'));
+  });
+
+  it('detectMilitaryScenarios: theater name nested in another word does not attach flight anomalies', () => {
+    const now = Date.now();
+    const preds = detectMilitaryScenarios({
+      militaryForecastInputs: {
+        fetchedAt: now,
+        theaters: [{ id: 'sahel-theater', name: 'Mali', postureLevel: 'elevated', assessedAt: now }],
+        surges: [],
+      },
+      temporalAnomalies: [{ type: 'military_flights', region: 'Somalia border strip', zScore: 3.0 }],
+    });
+    assert.equal(preds.length, 1);
+    assert.ok(!preds[0].signals.some(s => s.type === 'mil_flights'));
+  });
+
+  it('detectMilitaryScenarios: same-theater flight anomaly still attaches (positive control)', () => {
+    const now = Date.now();
+    const preds = detectMilitaryScenarios({
+      militaryForecastInputs: {
+        fetchedAt: now,
+        theaters: [{ id: 'sahel-theater', name: 'Mali', postureLevel: 'elevated', assessedAt: now }],
+        surges: [],
+      },
+      temporalAnomalies: [{ type: 'military_flights', region: 'Mali airspace', zScore: 3.0 }],
+    });
+    assert.ok(preds[0].signals.some(s => s.type === 'mil_flights'));
+  });
+
+  it('computeMarketMatchScore: "Iran" title token does not hit inside "Tirana"', () => {
+    const pred = makePrediction('conflict', 'Middle East', 'Escalation risk: Iran', 0.7, 0.6, '7d', []);
+    const score = computeMarketMatchScore(pred, 'Will Tirana host the 2027 summit?', ['middle east']);
+    assert.equal(score.titleHits, 0);
+  });
+
+  it('computeMarketMatchScore: exact "Iran" title token still hits (positive control)', () => {
+    const pred = makePrediction('conflict', 'Middle East', 'Escalation risk: Iran', 0.7, 0.6, '7d', []);
+    const score = computeMarketMatchScore(pred, 'Will Iran strike back in 2026?', ['middle east']);
+    assert.ok(score.titleHits >= 1);
+  });
+
+  it('computeMarketMatchScore: multi-word region term still matches across word boundaries', () => {
+    const pred = makePrediction('market', 'Middle East', 'Oil disruption', 0.6, 0.5, '7d', []);
+    const score = computeMarketMatchScore(pred, 'Will the Strait of Hormuz close in 2026?', ['strait of hormuz']);
+    assert.ok(score.regionHits >= 1);
+  });
+
+  it('getSearchTermsForRegion: Somalia does not inherit Mali terms via reverse substring lookup', () => {
+    const terms = getSearchTermsForRegion('Somalia').map(t => t.toLowerCase());
+    assert.ok(!terms.includes('bamako'), `Somalia terms leaked Mali keywords: ${terms.join(', ')}`);
+    assert.ok(!terms.some(t => t === 'mali'), `Somalia terms leaked Mali name: ${terms.join(', ')}`);
+    assert.ok(terms.includes('mogadishu'), `Somalia lost its own keywords to the substring break: ${terms.join(', ')}`);
+  });
+
+  it('getSearchTermsForRegion: Nigeria does not inherit Niger terms via reverse substring lookup', () => {
+    const terms = getSearchTermsForRegion('Nigeria').map(t => t.toLowerCase());
+    assert.ok(!terms.includes('niamey'), `Nigeria terms leaked Niger keywords: ${terms.join(', ')}`);
+    assert.ok(!terms.some(t => t === 'niger'), `Nigeria terms leaked Niger name: ${terms.join(', ')}`);
+  });
+
+  it('getSearchTermsForRegion: parenthetical suffix regions still resolve (positive control)', () => {
+    const terms = getSearchTermsForRegion('Myanmar (Burma)').map(t => t.toLowerCase());
+    assert.ok(terms.includes('myanmar'));
+  });
+
+  it('calibrateWithMarkets: Nigeria forecast is not calibrated by a Niger market (reverse-lookup poisoning)', () => {
+    const pred = makePrediction('political', 'Nigeria', 'Political instability: Nigeria', 0.7, 0.6, '30d', []);
+    calibrateWithMarkets([pred], {
+      geopolitical: [{ title: "Will Niger's junta lose power in 2026?", yesPrice: 30, source: 'polymarket', volume: 50000 }],
+    });
+    assert.equal(pred.calibration, null);
+    assert.equal(pred.probability, 0.7);
+  });
+
+  it('computeHeadlineRelevance: "war" hint does not hit inside "award", "iran" token not inside "Tirana"', () => {
+    const score = computeHeadlineRelevance('Award season kicks off in Tirana', [], 'conflict', {
+      titleTokens: ['iran'],
+      requireSemantic: true,
+    });
+    assert.equal(score, 0);
+  });
+
+  it('computeHeadlineRelevance: exact domain hint and title token still score (positive control)', () => {
+    const score = computeHeadlineRelevance('War fears grow as Iran mobilizes reservists', ['iran'], 'conflict', {
+      titleTokens: ['iran'],
+      requireSemantic: true,
+    });
+    assert.ok(score > 0);
+  });
+
+  it('computeHeadlineRelevance: plural form of a domain hint still scores (attacks vs attack)', () => {
+    const score = computeHeadlineRelevance('Missile attacks intensify near border', [], 'conflict', {
+      requireSemantic: true,
+    });
+    assert.ok(score > 0);
+  });
+
+  it('calibrateWithMarkets: plural domain hint still calibrates (elections vs election)', () => {
+    const pred = makePrediction('political', 'Nigeria', 'Political instability: Nigeria', 0.7, 0.6, '30d', []);
+    calibrateWithMarkets([pred], {
+      geopolitical: [{ title: 'Will Nigeria hold peaceful elections in 2026?', yesPrice: 80, source: 'polymarket', volume: 50000 }],
+    });
+    assert.ok(pred.calibration !== null);
+    assert.equal(pred.probability, +(0.4 * 0.8 + 0.6 * 0.7).toFixed(3));
+  });
+
+  it('getSearchTermsForRegion: DR Congo resolves to DR Congo, not Congo-Brazzaville', () => {
+    const terms = getSearchTermsForRegion('DR Congo').map(t => t.toLowerCase());
+    assert.ok(!terms.includes('brazzaville'), `DR Congo leaked Congo-Brazzaville terms: ${terms.join(', ')}`);
+    assert.ok(terms.includes('kinshasa'), `DR Congo lost its own keywords: ${terms.join(', ')}`);
+  });
+
+  it('getSearchTermsForRegion: Guinea-Bissau does not inherit Guinea/Conakry terms', () => {
+    const terms = getSearchTermsForRegion('Guinea-Bissau').map(t => t.toLowerCase());
+    assert.ok(!terms.includes('conakry'), `Guinea-Bissau leaked Guinea terms: ${terms.join(', ')}`);
+    assert.ok(terms.includes('guinea-bissau'));
+  });
+
+  it('getSearchTermsForRegion: Papua New Guinea does not inherit Guinea/Conakry terms', () => {
+    const terms = getSearchTermsForRegion('Papua New Guinea').map(t => t.toLowerCase());
+    assert.ok(!terms.includes('conakry'), `Papua New Guinea leaked Guinea terms: ${terms.join(', ')}`);
+  });
+
+  it('computeMarketMatchScore: "war" hint does not hit inside "wares" (es only after sibilants)', () => {
+    const pred = makePrediction('conflict', 'Middle East', 'Escalation risk: Iran', 0.7, 0.6, '7d', []);
+    const score = computeMarketMatchScore(pred, 'Will Iran export more wares in 2026?', ['iran', 'middle east']);
+    assert.equal(score.domainHits, 0);
+  });
+
+  it('calibrateWithMarkets: Iran conflict forecast not calibrated by an unrelated wares market', () => {
+    const pred = makePrediction('conflict', 'Middle East', 'Escalation risk: Iran', 0.7, 0.6, '7d', []);
+    calibrateWithMarkets([pred], {
+      geopolitical: [{ title: 'Will Iran export more wares in 2026?', yesPrice: 30, source: 'polymarket', volume: 50000 }],
+    });
+    assert.equal(pred.calibration, null);
+    assert.equal(pred.probability, 0.7);
+  });
+
+  it('computeMarketMatchScore: sibilant plural still matches ("gas" hint vs "gases")', () => {
+    const pred = makePrediction('market', 'Europe', 'Energy price shock: Europe', 0.6, 0.5, '7d', []);
+    const score = computeMarketMatchScore(pred, 'Will greenhouse gases regulation raise Europe energy prices?', ['europe']);
+    assert.ok(score.domainHits >= 1);
+  });
+});
+
+describe('non-finite probability guards (#4933)', () => {
+  it('makePrediction: NaN probability is coerced to a finite value, never serialized as null', () => {
+    const pred = makePrediction('conflict', 'Middle East', 'Test', NaN, 0.5, '7d', []);
+    assert.ok(Number.isFinite(pred.probability), `probability is ${pred.probability}`);
+    assert.equal(JSON.parse(JSON.stringify(pred)).probability, pred.probability);
+  });
+
+  it('makePrediction: undefined probability and NaN confidence are coerced to finite values', () => {
+    const pred = makePrediction('conflict', 'Middle East', 'Test', undefined, NaN, '7d', []);
+    assert.ok(Number.isFinite(pred.probability));
+    assert.ok(Number.isFinite(pred.confidence));
+  });
+
+  it('detectFromPredictionMarkets: non-numeric yesPrice row is skipped, not published with NaN', () => {
+    const preds = detectFromPredictionMarkets({
+      predictionMarkets: {
+        geopolitical: [{ title: 'Will Iran attack escalate in 2026?', yesPrice: 'oops', source: 'polymarket' }],
+      },
+    });
+    assert.equal(preds.length, 0);
+  });
+
+  it('detectFromPredictionMarkets: finite yesPrice in band still emits (positive control)', () => {
+    const preds = detectFromPredictionMarkets({
+      predictionMarkets: {
+        geopolitical: [{ title: 'Will Iran attack escalate in 2026?', yesPrice: 75, source: 'polymarket' }],
+      },
+    });
+    assert.equal(preds.length, 1);
+    assert.equal(preds[0].probability, 0.75);
+  });
+
+  it('calibrateWithMarkets: matching market with a non-finite price is skipped, not anchored at 50%', () => {
+    const pred = makePrediction('conflict', 'Middle East', 'Escalation', 0.7, 0.6, '7d', []);
+    calibrateWithMarkets([pred], {
+      geopolitical: [{ title: 'Will Iran conflict escalate in MENA?', source: 'polymarket', volume: 50000 }],
+    });
+    assert.equal(pred.calibration, null);
+    assert.equal(pred.probability, 0.7);
   });
 });
 
