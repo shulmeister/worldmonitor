@@ -519,6 +519,27 @@ describe('word-boundary term matching: no substring false positives (#4933)', ()
     const terms = getSearchTermsForRegion('Papua New Guinea').map(t => t.toLowerCase());
     assert.ok(!terms.includes('conakry'), `Papua New Guinea leaked Guinea terms: ${terms.join(', ')}`);
   });
+
+  it('computeMarketMatchScore: "war" hint does not hit inside "wares" (es only after sibilants)', () => {
+    const pred = makePrediction('conflict', 'Middle East', 'Escalation risk: Iran', 0.7, 0.6, '7d', []);
+    const score = computeMarketMatchScore(pred, 'Will Iran export more wares in 2026?', ['iran', 'middle east']);
+    assert.equal(score.domainHits, 0);
+  });
+
+  it('calibrateWithMarkets: Iran conflict forecast not calibrated by an unrelated wares market', () => {
+    const pred = makePrediction('conflict', 'Middle East', 'Escalation risk: Iran', 0.7, 0.6, '7d', []);
+    calibrateWithMarkets([pred], {
+      geopolitical: [{ title: 'Will Iran export more wares in 2026?', yesPrice: 30, source: 'polymarket', volume: 50000 }],
+    });
+    assert.equal(pred.calibration, null);
+    assert.equal(pred.probability, 0.7);
+  });
+
+  it('computeMarketMatchScore: sibilant plural still matches ("gas" hint vs "gases")', () => {
+    const pred = makePrediction('market', 'Europe', 'Energy price shock: Europe', 0.6, 0.5, '7d', []);
+    const score = computeMarketMatchScore(pred, 'Will greenhouse gases regulation raise Europe energy prices?', ['europe']);
+    assert.ok(score.domainHits >= 1);
+  });
 });
 
 describe('computeTrends', () => {

@@ -2060,9 +2060,10 @@ function tokenizeText(text) {
 // Word-boundary term matching to prevent substring false positives
 // (Mali matching Somalia, Niger matching Nigeria, Iran matching Tirana).
 // Boundary class mirrors the tokenizeText delimiter so both matchers agree.
-// A plural suffix (s/es) on the text side still counts — attacks/elections
-// must match the singular hints — but a term nested inside a DIFFERENT word
-// never does.
+// A plural suffix on the text side still counts — attacks/elections must
+// match the singular hints — but a term nested inside a DIFFERENT word
+// never does. "es" is only a plural after sibilants (gas→gases, tax→taxes);
+// allowing it globally made "war" match "wares".
 const TERM_MATCH_REGEX_CACHE_MAX = 4000;
 const termMatchRegexCache = new Map();
 function textIncludesTerm(lowerText, lowerTerm) {
@@ -2073,7 +2074,8 @@ function textIncludesTerm(lowerText, lowerTerm) {
       termMatchRegexCache.delete(termMatchRegexCache.keys().next().value);
     }
     const escaped = lowerTerm.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    re = new RegExp(`(?:^|[^a-z0-9])${escaped}(?:s|es)?(?:[^a-z0-9]|$)`);
+    const pluralSuffix = /(?:s|x|z|ch|sh)$/.test(lowerTerm) ? '(?:es)?' : 's?';
+    re = new RegExp(`(?:^|[^a-z0-9])${escaped}${pluralSuffix}(?:[^a-z0-9]|$)`);
     termMatchRegexCache.set(lowerTerm, re);
   }
   return re.test(lowerText);
