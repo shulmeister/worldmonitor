@@ -644,6 +644,11 @@ export const sendDunningEmail = internalAction({
     // Ledger write AFTER the send: a Resend failure throws above, leaving no
     // row, so the next cron tick retries. The narrow crash window between
     // send and record risks one duplicate email — the right side to err on.
+    // Corollary: dedup is BEST-EFFORT, not exactly-once — two concurrent
+    // invocations for the same (sub, step, episode) (e.g. an operator-run
+    // scan overlapping the cron) can both pass wasDunningStepSent before
+    // either records. Acceptable at a daily cadence; record-then-send would
+    // trade it for silently never sending on a crash, which is worse.
     await ctx.runMutation(internal.payments.subscriptionEmails.recordDunningStepSent, {
       ...args,
       email: sub.email,
@@ -681,14 +686,22 @@ export const runDunningScan = internalMutation({
       if (step) due.push({ dodoSubscriptionId: sub.dodoSubscriptionId, step, episodeAt });
     }
 
+    // Range-read ONLY the winback window via the compound index — cancelled
+    // is an accumulating terminal status, and a bare collect() over it would
+    // eventually blow Convex's per-transaction read cap and kill the whole
+    // scan (PR #4935 review finding 2). Rows without cancelledAt are legacy
+    // (all older than the window) and correctly fall outside the range.
     const cancelled = await ctx.db
       .query("subscriptions")
-      .withIndex("by_status", (q) => q.eq("status", "cancelled"))
+      .withIndex("by_status_cancelledAt", (q) =>
+        q
+          .eq("status", "cancelled")
+          .gte("cancelledAt", now - WINBACK_MAX_AGE_MS)
+          .lte("cancelledAt", now - WINBACK_MIN_AGE_MS),
+      )
       .collect();
     for (const sub of cancelled) {
       const cancelledAt = sub.cancelledAt ?? sub.updatedAt;
-      const age = now - cancelledAt;
-      if (age < WINBACK_MIN_AGE_MS || age > WINBACK_MAX_AGE_MS) continue;
       if (sub.currentPeriodEnd > now) continue;
       due.push({ dodoSubscriptionId: sub.dodoSubscriptionId, step: "winback_day30", episodeAt: cancelledAt });
     }

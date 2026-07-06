@@ -749,9 +749,14 @@ export async function handleSubscriptionOnHold(
   // Episode anchor (#4932): only the transition INTO on_hold opens a new
   // dunning episode. Repeated on_hold webhooks (Dodo payment-retry failures,
   // replays) keep the original anchor so the day-3/day-7 clock doesn't reset
-  // and the day-0 email isn't re-sent.
+  // and the day-0 email isn't re-sent. For pre-#4932 rows already on_hold
+  // with no onHoldAt, the fallback MUST be the pre-patch updatedAt — that is
+  // exactly what runDunningScan uses as their episode key, so the ledger
+  // dedup stays consistent. Falling back to eventTimestamp would move the
+  // anchor on every repeat webhook and re-open the finished sequence
+  // (duplicate day-3/day-7 sends — PR #4935 review finding 1).
   const enteringHold = existing.status !== "on_hold";
-  const onHoldAt = enteringHold ? eventTimestamp : (existing.onHoldAt ?? eventTimestamp);
+  const onHoldAt = enteringHold ? eventTimestamp : (existing.onHoldAt ?? existing.updatedAt);
 
   await ctx.db.patch(existing._id, {
     status: "on_hold",

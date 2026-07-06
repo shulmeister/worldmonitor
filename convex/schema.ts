@@ -551,9 +551,18 @@ export default defineSchema({
     .index("by_userId", ["userId"])
     .index("by_dodoSubscriptionId", ["dodoSubscriptionId"])
     .index("by_dodoCustomerId", ["dodoCustomerId"])
-    // Dunning/winback scan (#4932): fetch on_hold + cancelled subs without
-    // a full-table scan. Cardinality is tiny (tens of rows per status).
-    .index("by_status", ["status"]),
+    // Dunning scan (#4932): on_hold is a small TRANSIENT set (tens of rows),
+    // safe to collect() daily.
+    .index("by_status", ["status"])
+    // Winback scan (#4932): cancelled is an ACCUMULATING terminal status —
+    // it grows with lifetime churn, so a bare by_status collect() would
+    // eventually hit Convex's per-transaction read cap and kill the whole
+    // daily scan (PR #4935 review finding 2). This compound index lets the
+    // scan range-read only the 30–60-day cancelledAt window. Legacy rows
+    // without cancelledAt sort below every number and fall outside the
+    // range — they are all older than the window by construction, so
+    // exclusion is correct.
+    .index("by_status_cancelledAt", ["status", "cancelledAt"]),
 
   // Dunning/winback send ledger (#4932): one row per email step actually
   // delivered for a given subscription episode. `episodeAt` is the on_hold

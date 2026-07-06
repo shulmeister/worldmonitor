@@ -310,6 +310,44 @@ describe("runDunningScan windows", () => {
     expect(await ledgerRows(t)).toHaveLength(2);
   });
 
+  test("repeat on_hold webhook does NOT re-open a finished pre-existing episode (PR #4935 F1)", async () => {
+    vi.useFakeTimers();
+    process.env.RESEND_API_KEY = "re_test";
+    const fetchMock = mockResend();
+    const t = convexTest(schema, modules);
+    // Pre-#4932 row: on_hold for 20 days, no onHoldAt — updatedAt is the anchor.
+    const anchor = Date.now() - 20 * DAY_MS;
+    await seedSub(t, { updatedAt: anchor });
+
+    // Catch-up scan sends the final notice for episode `anchor`.
+    await t.mutation(internal.payments.subscriptionEmails.runDunningScan, {});
+    await t.finishAllScheduledFunctions(vi.runAllTimers);
+    expect(resendSends(fetchMock)).toHaveLength(1);
+
+    // A Dodo payment-retry failure fires another on_hold webhook. The anchor
+    // must FREEZE at the pre-patch updatedAt — falling back to the event
+    // timestamp would restart the 3/7-day clock and re-send the sequence.
+    await t.mutation(internal.payments.webhookMutations.processWebhookEvent, {
+      webhookId: "wh_repeat_hold",
+      eventType: "subscription.on_hold",
+      rawPayload: { data: { subscription_id: SUB_ID } },
+      timestamp: Date.now(),
+    });
+    await t.finishAllScheduledFunctions(vi.runAllTimers);
+
+    const sub = await t.run(async (ctx) =>
+      ctx.db
+        .query("subscriptions")
+        .withIndex("by_dodoSubscriptionId", (q) => q.eq("dodoSubscriptionId", SUB_ID))
+        .unique(),
+    );
+    expect(sub?.onHoldAt).toBe(anchor);
+
+    await t.mutation(internal.payments.subscriptionEmails.runDunningScan, {});
+    await t.finishAllScheduledFunctions(vi.runAllTimers);
+    expect(resendSends(fetchMock)).toHaveLength(1);
+  });
+
   test("fresh hold (1 day old) is not emailed by the scan", async () => {
     vi.useFakeTimers();
     process.env.RESEND_API_KEY = "re_test";
