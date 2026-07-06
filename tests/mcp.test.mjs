@@ -211,6 +211,7 @@ describe('api/mcp.ts — PRO MCP Server', () => {
     assert.equal(body.id, 8);
     assert.ok(Array.isArray(body.result?.messages) && body.result.messages.length > 0,
       'anonymous prompts/get must render the template messages');
+    assertNoStore(res, 'anonymous prompts/get');
   });
 
   it('ping succeeds WITHOUT credentials (spec liveness check — SDK keepalives must not hang)', async () => {
@@ -224,6 +225,7 @@ describe('api/mcp.ts — PRO MCP Server', () => {
     const body = await res.json();
     assert.equal(body.id, 9);
     assert.deepEqual(body.result, {});
+    assertNoStore(res, 'anonymous ping');
   });
 
   it('logging/setLevel succeeds WITHOUT credentials (no-op ack for the advertised logging capability)', async () => {
@@ -237,6 +239,7 @@ describe('api/mcp.ts — PRO MCP Server', () => {
     const body = await res.json();
     assert.equal(body.id, 10);
     assert.deepEqual(body.result, {});
+    assertNoStore(res, 'anonymous logging/setLevel');
   });
 
   it('resources/read of a data-bearing TEMPLATE instantiation still requires credentials (no quota bypass)', async () => {
