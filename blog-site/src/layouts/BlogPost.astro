@@ -118,7 +118,11 @@ function extractFaqLd(body: string | undefined): object | null {
   const afterFaq = body.slice(faqIdx + '## Frequently Asked Questions'.length);
   const nextHeading = afterFaq.search(/\n##\s/);
   const faqSection = nextHeading === -1 ? afterFaq : afterFaq.slice(0, nextHeading);
-  const qaRegex = /\*\*(.+?)\*\*\n([^\n*]+(?:\n[^\n*#]+)*)/g;
+  // \n+ (not \n): every post writes a blank line between the bolded question
+  // and its answer — with a single \n the regex matched nothing and NO post
+  // ever emitted FAQPage JSON-LD (#5001). Guarded against the real post
+  // corpus by tests/blog-faq-ld.test.mjs.
+  const qaRegex = /\*\*(.+?)\*\*\n+([^\n*]+(?:\n[^\n*#]+)*)/g;
   const items: { "@type": string; name: string; acceptedAnswer: { "@type": string; text: string } }[] = [];
   let match: RegExpExecArray | null;
   while ((match = qaRegex.exec(faqSection)) !== null) {
