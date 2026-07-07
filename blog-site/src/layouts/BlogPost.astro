@@ -116,9 +116,16 @@ function extractFaqLd(body: string | undefined): object | null {
   const faqIdx = body.indexOf('## Frequently Asked Questions');
   if (faqIdx === -1) return null;
   const afterFaq = body.slice(faqIdx + '## Frequently Asked Questions'.length);
-  const nextHeading = afterFaq.search(/\n##\s/);
+  // The FAQ section ends at the next H2 OR at a horizontal rule — nearly
+  // every post closes its FAQ with `---` followed by a bold takeaway/CTA
+  // paragraph, which must not be extracted as a Question.
+  const nextHeading = afterFaq.search(/\n##\s|\n---\s*\n/);
   const faqSection = nextHeading === -1 ? afterFaq : afterFaq.slice(0, nextHeading);
-  const qaRegex = /\*\*(.+?)\*\*\n([^\n*]+(?:\n[^\n*#]+)*)/g;
+  // \n+ (not \n): every post writes a blank line between the bolded question
+  // and its answer — with a single \n the regex matched nothing and NO post
+  // ever emitted FAQPage JSON-LD (#5001). Guarded against the real post
+  // corpus by tests/blog-faq-ld.test.mjs.
+  const qaRegex = /\*\*(.+?)\*\*\n+([^\n*]+(?:\n[^\n*#]+)*)/g;
   const items: { "@type": string; name: string; acceptedAnswer: { "@type": string; text: string } }[] = [];
   let match: RegExpExecArray | null;
   while ((match = qaRegex.exec(faqSection)) !== null) {
