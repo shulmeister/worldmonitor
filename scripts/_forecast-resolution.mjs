@@ -19,7 +19,9 @@
 // is not parsed by this module or any consumer today (Bet 2's resolver
 // interprets it). The grammar is frozen into 45-day history, so it must be
 // consistent — no literal '<region>'/'<title>' placeholders, no '=' vs '=='
-// drift between families.
+// drift between families. count() means NEW events dated within the spec's
+// 'within-horizon' window ([emission, deadline]), with a horizon-scoped
+// threshold (#5010) — never the feed's full 365-day trailing tally.
 
 // ── Horizon -> deadline math (R5) ───────────────────────────────────────
 //
@@ -156,9 +158,20 @@ export const DOMAIN_TO_HARD_FAMILIES = {
 
 // The commodity price-MOVE threshold ratio (market family): threshold =
 // emission baseline × this. A 10% move is the "material price impact" bar.
-// The only tunable in the module — named + exported so it is discoverable and
-// a future per-commodity volatility model has one obvious knob to replace.
+// Named + exported so it is discoverable and a future per-commodity
+// volatility model has one obvious knob to replace.
 export const MARKET_PRICE_MOVE_RATIO = 1.1;
+
+// The conflict escalation ratio (conflict/ucdp_zone count threshold, #5010):
+// the horizon-scoped confirming count is the country's base event rate
+// projected over the forecast horizon, escalated by this factor — "events
+// materially above trend". The emission-time signal tally is a 365-day
+// trailing count (seed-ucdp-events.mjs TRAILING_WINDOW_MS), so
+//   threshold = max(1, round(tally365 × horizonMs/365d × this))
+// counted over NEW events dated within [emission, deadline]. Like
+// MARKET_PRICE_MOVE_RATIO, this is a named Bet-2 tuning knob.
+export const CONFLICT_ESCALATION_RATIO = 1.5;
+const YEAR_MS = 365 * 24 * 60 * 60 * 1000;
 
 // FAMILY_FEED / FAMILY_WINDOW map each hard family to its default sourceFeed
 // + resolution window. The market family has no single fixed feed — it is
@@ -175,13 +188,22 @@ const FAMILY_FEED = {
   // whichever MARKET_INPUT_KEYS-backed calibration source is available.
 };
 
+// Window vocabulary (#5010 amendment): every value must be establishable by
+// the Bet-2 resolver from the feed it names. 'within-horizon' = the condition
+// is checked over [emission, deadline] (dated-record feeds) or as a deadline
+// point read (snapshot feeds); 'at-deadline' = a point read of the current-
+// snapshot feed at the first resolver tick at/after the deadline;
+// 'at-endDate' = the prediction market's own settlement. The previous
+// sustained-window value for supply_chain/gps was removed (#5010) — a
+// sustained condition is unestablishable from current-snapshot feeds without
+// resolver-side sampling and forced permanent VOID.
 const FAMILY_WINDOW = {
   conflict: 'within-horizon',
   ucdp_zone: 'within-horizon',
-  supply_chain: 'sustained-48h',
+  supply_chain: 'at-deadline',
   infrastructure: 'within-horizon',
   prediction_market: 'at-endDate',
-  gps: 'sustained-48h',
+  gps: 'at-deadline',
   market: 'within-horizon',
 };
 
@@ -343,12 +365,21 @@ function deriveHardMetrics(pred, family, inputs) {
       // `count(country==X) >= <ciiScore>` ground truth, and since detectors
       // emit the cii signal first it would shadow a real count. A conflict
       // forecast with only cii signals has no clean count metric -> judged.
-      const count = firstFiniteSignalCount(pred, new Set(['ucdp', 'conflict_events']));
-      if (!Number.isFinite(count)) return null;
+      const tally = firstFiniteSignalCount(pred, new Set(['ucdp', 'conflict_events']));
+      if (!Number.isFinite(tally)) return null;
+      // Horizon-commensurable threshold (#5010): the signal tally is a
+      // 365-day trailing count, but the forecast is a ~horizon claim — a raw
+      // tally threshold would systematically resolve NO over the horizon
+      // window (biased Brier). Scale the base rate to the horizon and apply
+      // the escalation bar; count() means NEW events dated within
+      // [emission, deadline] (the 'within-horizon' window).
+      const horizonMs = HORIZON_MS[pred.timeHorizon];
+      if (!Number.isFinite(horizonMs)) return null; // deriveDeadline throws for the judged path too
+      const threshold = Math.max(1, Math.round(tally * (horizonMs / YEAR_MS) * CONFLICT_ESCALATION_RATIO));
       return {
         metricKey: `conflict:ucdp-events:v1|count(country==${pred.region})`,
         operator: '>=',
-        threshold: Math.max(1, Math.round(count)),
+        threshold,
         window: FAMILY_WINDOW[family],
       };
     }

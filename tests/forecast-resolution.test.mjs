@@ -12,6 +12,7 @@ import {
   DOMAIN_TO_HARD_FAMILIES,
   COMMODITY_LABEL_TO_SYMBOL,
   MARKET_PRICE_MOVE_RATIO,
+  CONFLICT_ESCALATION_RATIO,
   deriveDeadline,
   buildResolutionSpec,
   attachResolutionSpecs,
@@ -638,12 +639,12 @@ describe('FIX 1 — domain constrains the hard family (DOMAIN_TO_HARD_FAMILIES)'
     assert.equal(spec.sourceFeed, null);
   });
 
-  it('a conflict forecast with cii + conflict_events takes the threshold from the COUNT signal, not the cii score', () => {
+  it('a conflict forecast with cii + conflict_events derives a horizon-scoped threshold from the COUNT signal', () => {
     const forecast = pred({
       domain: 'conflict',
       region: 'Sudan',
       // cii emitted first (would shadow the count if it were accepted) — the
-      // threshold must come from the conflict_events count (3), not 71.
+      // count base must come from the conflict_events tally (3), not 71.
       signals: [
         { type: 'cii', value: 'Sudan CII 71', weight: 0.4 },
         { type: 'conflict_events', value: '3 cross-border events', weight: 0.35 },
@@ -652,7 +653,14 @@ describe('FIX 1 — domain constrains the hard family (DOMAIN_TO_HARD_FAMILIES)'
     const spec = buildResolutionSpec(forecast, {}, GENERATED_AT);
     assert.equal(spec.kind, 'hard');
     assert.equal(spec.sourceFeed, 'conflict:ucdp-events:v1');
-    assert.equal(spec.threshold, 3);
+    // #5010 horizon-commensurable threshold: the 365d-trailing tally (3) is
+    // scaled to the 30d horizon and escalated —
+    // max(1, round(3 × 30d/365d × CONFLICT_ESCALATION_RATIO)) = 1.
+    // Three wrong answers excluded: 71 (the cii index), 3 (the raw 365d
+    // tally — would systematically resolve NO over a 30d window), and 0
+    // (the floor guarantees a confirmable bar).
+    assert.equal(spec.threshold, Math.max(1, Math.round(3 * (HORIZON_MS['30d'] / (365 * 24 * 60 * 60 * 1000)) * CONFLICT_ESCALATION_RATIO)));
+    assert.equal(spec.threshold, 1);
   });
 });
 
@@ -747,6 +755,70 @@ describe('FIX 4 — MARKET_PRICE_MOVE_RATIO is the named threshold knob', () => 
     const spec = buildResolutionSpec(forecast, COMMODITY_INPUTS, GENERATED_AT);
     assert.equal(spec.baselineValue, 68.92);
     assert.equal(spec.threshold, +(68.92 * MARKET_PRICE_MOVE_RATIO).toFixed(2));
+  });
+});
+
+describe('#5010 amendment — resolvable windows + horizon-commensurable count', () => {
+  it('supply_chain and gps specs emit window at-deadline — sustained-48h is gone', () => {
+    const supply = buildResolutionSpec(pred({
+      domain: 'supply_chain', region: 'Strait of Hormuz',
+      signals: [{ type: 'chokepoint', value: 'Strait of Hormuz disruption detected', weight: 0.5 }],
+    }), {}, GENERATED_AT);
+    assert.equal(supply.kind, 'hard');
+    assert.equal(supply.window, 'at-deadline');
+
+    const gps = buildResolutionSpec(pred({
+      domain: 'supply_chain', region: 'Black Sea',
+      signals: [{ type: 'gps_jamming', value: '41 jamming hexes in Black Sea', weight: 0.5 }],
+    }), {}, GENERATED_AT);
+    assert.equal(gps.kind, 'hard');
+    assert.equal(gps.window, 'at-deadline');
+  });
+
+  it('no emitted hard spec carries a sustained-48h window (unestablishable from snapshot feeds)', () => {
+    // The module source must not emit the token at all — a resolver cannot
+    // establish a sustained condition from current-snapshot feeds without
+    // sampling, so the old value forced permanent VOID.
+    const src = readFileSync(resolve(dirname(fileURLToPath(import.meta.url)), '../scripts/_forecast-resolution.mjs'), 'utf8');
+    const emitted = src.match(/'(sustained-[^']+)'/g) || [];
+    assert.deepEqual(emitted, [], `sustained windows must not be emitted, found ${emitted}`);
+  });
+
+  it('within-horizon and at-endDate families are unchanged (only supply/gps windows moved)', () => {
+    // Cherry-picked from the racing PR #5011 — the amendment must not drift
+    // the families the issue confirmed fine.
+    const conflict = buildResolutionSpec(pred({
+      domain: 'conflict', region: 'Mali',
+      signals: [{ type: 'conflict_events', value: '12 cross-border events', weight: 0.4 }],
+    }), {}, GENERATED_AT);
+    assert.equal(conflict.window, 'within-horizon');
+
+    const infra = buildResolutionSpec(pred({
+      domain: 'infrastructure', region: 'Cuba',
+      signals: [{ type: 'outage', value: 'Cuba major outage', weight: 0.4 }],
+    }), {}, GENERATED_AT);
+    assert.equal(infra.window, 'within-horizon');
+
+    const market = buildResolutionSpec(pred({
+      domain: 'market', region: 'Middle East', title: 'Oil price impact',
+      signals: [{ type: 'commodity', value: 'Oil sensitivity: 0.8', weight: 0.3 }],
+    }), COMMODITY_INPUTS, GENERATED_AT);
+    assert.equal(market.window, 'within-horizon');
+  });
+
+  it('the conflict count threshold scales with the horizon (24h vs 30d from the same tally)', () => {
+    const mk = (horizon) => buildResolutionSpec(pred({
+      domain: 'conflict', region: 'Pakistan', timeHorizon: horizon,
+      signals: [{ type: 'ucdp', value: '175 UCDP conflict events', weight: 0.5 }],
+    }), {}, GENERATED_AT);
+    const day = mk('24h');
+    const month = mk('30d');
+    // 175 events/365d: 24h → max(1, round(175 × 1/365 × 1.5)) = 1;
+    // 30d → max(1, round(175 × 30/365 × 1.5)) = 22. Never the raw tally.
+    assert.equal(day.threshold, 1);
+    assert.equal(month.threshold, 22);
+    assert.notEqual(month.threshold, 175);
+    assert.equal(CONFLICT_ESCALATION_RATIO, 1.5);
   });
 });
 
