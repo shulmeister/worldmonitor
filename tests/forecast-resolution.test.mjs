@@ -784,6 +784,28 @@ describe('#5010 amendment — resolvable windows + horizon-commensurable count',
     assert.deepEqual(emitted, [], `sustained windows must not be emitted, found ${emitted}`);
   });
 
+  it('within-horizon and at-endDate families are unchanged (only supply/gps windows moved)', () => {
+    // Cherry-picked from the racing PR #5011 — the amendment must not drift
+    // the families the issue confirmed fine.
+    const conflict = buildResolutionSpec(pred({
+      domain: 'conflict', region: 'Mali',
+      signals: [{ type: 'conflict_events', value: '12 cross-border events', weight: 0.4 }],
+    }), {}, GENERATED_AT);
+    assert.equal(conflict.window, 'within-horizon');
+
+    const infra = buildResolutionSpec(pred({
+      domain: 'infrastructure', region: 'Cuba',
+      signals: [{ type: 'outage', value: 'Cuba major outage', weight: 0.4 }],
+    }), {}, GENERATED_AT);
+    assert.equal(infra.window, 'within-horizon');
+
+    const market = buildResolutionSpec(pred({
+      domain: 'market', region: 'Middle East', title: 'Oil price impact',
+      signals: [{ type: 'commodity', value: 'Oil sensitivity: 0.8', weight: 0.3 }],
+    }), COMMODITY_INPUTS, GENERATED_AT);
+    assert.equal(market.window, 'within-horizon');
+  });
+
   it('the conflict count threshold scales with the horizon (24h vs 30d from the same tally)', () => {
     const mk = (horizon) => buildResolutionSpec(pred({
       domain: 'conflict', region: 'Pakistan', timeHorizon: horizon,
