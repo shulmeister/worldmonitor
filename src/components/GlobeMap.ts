@@ -2758,7 +2758,7 @@ export class GlobeMap {
       else if (zoom >= 3) altitude = 0.8;
       else                altitude = 1.5;
     }
-    this.globe.pointOfView({ lat: preset.lat, lng: preset.lng, altitude }, 1200);
+    this.globe.pointOfView({ lat: preset.lat, lng: preset.lng, altitude }, SET_CENTER_ROTATION_MS);
   }
 
   public setCenter(lat: number, lon: number, zoom?: number): void {

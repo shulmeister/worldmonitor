@@ -355,6 +355,31 @@ describe('map renderer deferral boundary', () => {
     }
   });
 
+  it('queues chokepoint popup opens that arrive before the deferred renderer exists', () => {
+    const mapContainer = parseSource('src/components/MapContainer.ts');
+    const cls = mapContainerClass(mapContainer);
+    const members = classMemberNames(cls);
+
+    assert.ok(
+      members.has('pendingChokepointOpen'),
+      'MapContainer should cache chokepoint deep-link opens for deferred renderer replay',
+    );
+
+    const openBody = methodBodyText(cls, 'openChokepoint');
+    assert.match(
+      openBody,
+      /!this\.hasActiveRenderer\(\)[\s\S]*this\.pendingChokepointOpen\s*=\s*id[\s\S]*return/,
+      'openChokepoint should queue the id when no concrete renderer exists yet',
+    );
+
+    const rehydrateBody = methodBodyText(cls, 'rehydrateActiveMap');
+    assert.match(
+      rehydrateBody,
+      /this\.pendingChokepointOpen\s*!==\s*null[\s\S]*this\.openChokepoint\(pendingChokepointOpen\)/,
+      'rehydrateActiveMap should replay a queued chokepoint open after renderer creation',
+    );
+  });
+
   it('gates desktop DeckGL startup behind viewport idle or first interaction', () => {
     const mapContainer = parseSource('src/components/MapContainer.ts');
     const cls = mapContainerClass(mapContainer);

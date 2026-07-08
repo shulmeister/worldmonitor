@@ -146,6 +146,7 @@ export class MapContainer {
   private destroyed = false;
   private pendingCenter: PendingCenter | null = null;
   private pendingViewportActions: PendingViewportAction[] = [];
+  private pendingChokepointOpen: string | null = null;
   private hiddenLayerToggles = new Set<keyof MapLayers>();
   private layerLoadingState = new Map<keyof MapLayers, boolean>();
   private layerReadyState = new Map<keyof MapLayers, boolean>();
@@ -661,6 +662,11 @@ export class MapContainer {
       const pendingCenter = this.pendingCenter;
       this.pendingCenter = null;
       this.setCenter(pendingCenter.lat, pendingCenter.lon, pendingCenter.zoom);
+    }
+    if (this.pendingChokepointOpen !== null) {
+      const pendingChokepointOpen = this.pendingChokepointOpen;
+      this.pendingChokepointOpen = null;
+      this.openChokepoint(pendingChokepointOpen);
     }
     for (const layer of this.hiddenLayerToggles) this.hideLayerToggle(layer);
   }
@@ -1320,6 +1326,10 @@ export class MapContainer {
   // Pan/rotate to a chokepoint and open its waterway popup. Unlike the trigger*
   // clicks above, globe is a real target here (it pans the point to front-centre).
   public openChokepoint(id: string): void {
+    if (!this.hasActiveRenderer()) {
+      this.pendingChokepointOpen = id;
+      return;
+    }
     if (this.useGlobe) {
       this.globeMap?.openChokepoint(id);
     } else if (this.useDeckGL) {
@@ -1516,6 +1526,7 @@ export class MapContainer {
     this.cachedChokepointData = undefined;
     this.pendingCenter = null;
     this.pendingViewportActions = [];
+    this.pendingChokepointOpen = null;
     this.hiddenLayerToggles.clear();
     this.layerLoadingState.clear();
     this.layerReadyState.clear();
