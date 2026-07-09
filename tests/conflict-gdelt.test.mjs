@@ -7,6 +7,10 @@ import {
   GDELT_COUNTRY_NAMES,
 } from '../scripts/_conflict-gdelt.mjs';
 import { computeEmaWindows } from '../scripts/_ema-threat-engine.mjs';
+import {
+  fetchGdeltConflictEvents,
+  GDELT_MIN_SUCCESSFUL_COUNTRIES,
+} from '../scripts/seed-conflict-intel.mjs';
 
 test('gdeltSeenDateToIso parses GDELT seendate formats to YYYY-MM-DD', () => {
   assert.equal(gdeltSeenDateToIso('20260709T140000Z'), '2026-07-09');
@@ -75,4 +79,32 @@ test('GDELT_COUNTRY_NAMES covers the priority conflict set with full display nam
   assert.equal(GDELT_COUNTRY_NAMES.SD, 'Sudan');
   assert.equal(GDELT_COUNTRY_NAMES.CD, 'Democratic Republic of Congo');
   assert.ok(Object.keys(GDELT_COUNTRY_NAMES).length >= 20);
+});
+
+test('fetchGdeltConflictEvents fails closed when too many country fetches fail', async () => {
+  let calls = 0;
+  await assert.rejects(
+    fetchGdeltConflictEvents({
+      pace: async () => {},
+      fetchCountryEvents: async (cc) => {
+        calls += 1;
+        if (calls < GDELT_MIN_SUCCESSFUL_COUNTRIES) {
+          return { country: cc, ok: true, events: [{ country: 'Sudan', event_date: '2026-07-09' }] };
+        }
+        return { country: cc, ok: false, events: [], error: 'proxy unavailable' };
+      },
+    }),
+    /coverage below floor: 15\/20 countries succeeded \(min 16\)/,
+  );
+});
+
+test('fetchGdeltConflictEvents treats successful zero-article countries as coverage', async () => {
+  const result = await fetchGdeltConflictEvents({
+    pace: async () => {},
+    fetchCountryEvents: async (cc) => ({ country: cc, ok: true, events: [] }),
+  });
+
+  assert.equal(result.events.length, 0);
+  assert.equal(result.pagination.countriesSucceeded, 20);
+  assert.equal(result.pagination.countriesFailed, 0);
 });

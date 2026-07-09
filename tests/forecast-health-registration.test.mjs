@@ -16,6 +16,8 @@ describe('forecast resolution health registration', () => {
     assert.equal(__testing__.SEED_META.temporalAnomalies.key, 'seed-meta:temporal:anomalies');
     assert.equal(__testing__.SEED_META.temporalAnomalies.maxStaleMin, 45);
     assert.equal(__testing__.STANDALONE_KEYS.acledIntel, 'conflict:acled:v1:all:0:0');
+    assert.equal(__testing__.SEED_META.acledIntel.key, 'seed-meta:conflict:acled-intel');
+    assert.equal(__testing__.SEED_META.acledIntel.maxStaleMin, 38);
     assert.equal(__testing__.BOOTSTRAP_KEYS.fredBatch, 'economic:fred:v1:FEDFUNDS:0');
 
     const forecastFredInputs = {
@@ -35,6 +37,23 @@ describe('forecast resolution health registration', () => {
       assert.equal(__testing__.SEED_META[name]?.key, `seed-meta:${dataKey}`, `${name} seed-meta key`);
       assert.equal(__testing__.SEED_META[name]?.maxStaleMin, 1500, `${name} maxStaleMin`);
     }
+  });
+
+  it('treats a missing ACLED/GDELT conflict feed as a strict health problem', () => {
+    const entry = __testing__.classifyKey(
+      'acledIntel',
+      __testing__.STANDALONE_KEYS.acledIntel,
+      { allowOnDemand: true },
+      {
+        keyStrens: new Map(),
+        keyErrors: new Map(),
+        keyMetaValues: new Map(),
+        keyMetaErrors: new Map(),
+        now: 1_700_000_000_000,
+      },
+    );
+
+    assert.equal(entry.status, 'EMPTY');
   });
 
   it('treats a missing temporal-anomalies forecast feed as a strict health problem', () => {
