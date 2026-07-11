@@ -1305,6 +1305,17 @@ export default defineConfig(({ mode }) => {
             if (id.endsWith('/src/components/DeckGLMap.ts')) {
               return 'deck-stack';
             }
+            // Co-locate ResilienceWidget with its only runtime importer
+            // (CountryDeepDivePanel, panels-intel). As a standalone chunk its
+            // import() was a second network hop on every deep-dive open, and
+            // filtering middleboxes that stub the *Widget*-named chunk URL with
+            // an empty 200 made the import resolve WITHOUT the export
+            // (Sentry WORLDMONITOR-T6). In-chunk resolution removes that
+            // surface and the waterfall hop; shared deps (resilience-widget-
+            // utils, services/resilience) already live in shared chunks.
+            if (id.endsWith('/src/components/ResilienceWidget.ts')) {
+              return 'panels-intel';
+            }
             if (id.includes('/src/components/') && id.endsWith('.ts')) {
               const panelChunk = panelChunkForComponentId(id);
               if (panelChunk) return panelChunk;
