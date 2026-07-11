@@ -9,6 +9,7 @@ const originalEnv = { ...process.env };
 const { default: handler } = await import('./wm-session.js');
 const { validateSessionToken } = await import('./_session.js');
 const { __resetRateLimitForTest } = await import('./_rate-limit.js');
+const { __resetWmSessionTelemetryForTests } = await import('./_usage-telemetry.js');
 
 function restoreEnv() {
   for (const key of Object.keys(process.env)) {
@@ -42,18 +43,21 @@ function mockUpstashRateLimit({ remaining = 29, limit = 30 } = {}) {
 beforeEach(() => {
   configureDefaultEnv();
   __resetRateLimitForTest();
+  __resetWmSessionTelemetryForTests();
   mockUpstashRateLimit();
 });
 
 afterEach(() => {
   __resetRateLimitForTest();
+  __resetWmSessionTelemetryForTests();
   globalThis.fetch = originalFetch;
   restoreEnv();
 });
 
-function makeReq(method, { origin } = {}) {
+function makeReq(method, { origin, referer } = {}) {
   const headers = new Headers();
   if (origin) headers.set('origin', origin);
+  if (referer) headers.set('referer', referer);
   return new Request('https://api.worldmonitor.app/api/wm-session', { method, headers });
 }
 
@@ -94,6 +98,18 @@ function finalCookieJar(cookies) {
   return jar;
 }
 
+function makeWaitUntilCtx() {
+  const pending = [];
+  return {
+    ctx: { waitUntil: (promise) => pending.push(promise) },
+    settle: async () => {
+      for (let index = 0; index < pending.length; index += 1) {
+        await Promise.allSettled([pending[index]]);
+      }
+    },
+  };
+}
+
 test('POST from trusted origin sets a valid HttpOnly wms_ session cookie without exposing token JSON', async () => {
   const resp = await handler(makeReq('POST', { origin: 'https://worldmonitor.app' }));
   assert.equal(resp.status, 200);
@@ -106,6 +122,61 @@ test('POST from trusted origin sets a valid HttpOnly wms_ session cookie without
   assert.equal(await validateSessionToken(token), true);
   assert.match(cookies.join('\n'), /wm-session=.*HttpOnly/);
   assert.match(cookies.join('\n'), /wm-session=.*Domain=\.worldmonitor\.app/);
+});
+
+test('POST emits one anonymous mint usage event without exposing cookie material', async () => {
+  process.env.USAGE_TELEMETRY = '1';
+  process.env.AXIOM_API_TOKEN = 'axiom-test-token';
+  const events = [];
+  globalThis.fetch = async (input, init) => {
+    const url = input instanceof URL ? input.href : typeof input === 'string' ? input : input.url;
+    if (url.includes('fake.upstash.io')) {
+      return new Response(JSON.stringify([{ result: [29, 30] }]), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+    if (url.includes('axiom.co')) {
+      events.push(...JSON.parse(init.body));
+      return new Response('{}', { status: 200 });
+    }
+    throw new Error(`unexpected telemetry fetch: ${url}`);
+  };
+  const { ctx, settle } = makeWaitUntilCtx();
+
+  const request = makeReq('POST', {
+    origin: 'https://worldmonitor.app',
+    referer: 'https://worldmonitor.app/reset-password?token=must-not-be-logged#also-not-logged',
+  });
+  request.headers.set('x-forwarded-for', '203.0.113.99, attacker-controlled');
+  const resp = await handler(request, ctx);
+  assert.equal(resp.status, 200);
+  await settle();
+
+  assert.equal(events.length, 1);
+  assert.deepEqual(
+    {
+      event_type: events[0].event_type,
+      route: events[0].route,
+      status: events[0].status,
+      auth_kind: events[0].auth_kind,
+      origin_kind: events[0].origin_kind,
+      ip: events[0].ip,
+      referer: events[0].referer,
+      reason: events[0].reason,
+    },
+    {
+      event_type: 'request',
+      route: '/api/wm-session',
+      status: 200,
+      auth_kind: 'anon',
+      origin_kind: 'browser-cross-origin',
+      ip: null,
+      referer: 'https://worldmonitor.app/reset-password',
+      reason: 'ok',
+    },
+  );
+  assert.equal(JSON.stringify(events[0]).includes('wms_'), false, 'never telemeter the minted session token');
 });
 
 test('localhost session cookie remains host-only for dev', async () => {
@@ -182,6 +253,116 @@ test('POST returns 429 without issuing a token when the wm-session issuance budg
   assert.equal(cookieValue(setCookies(resp), 'wm-session'), '');
   const body = await resp.json();
   assert.equal(body.error, 'Too many requests');
+});
+
+test('failed mint outcomes emit their terminal status', async () => {
+  process.env.USAGE_TELEMETRY = '1';
+  process.env.AXIOM_API_TOKEN = 'axiom-test-token';
+  const events = [];
+  globalThis.fetch = async (input, init) => {
+    const url = input instanceof URL ? input.href : typeof input === 'string' ? input : input.url;
+    if (url.includes('fake.upstash.io')) {
+      return new Response(JSON.stringify([{ result: [-1, 30] }]), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+    if (url.includes('axiom.co')) {
+      events.push(...JSON.parse(init.body));
+      return new Response('{}', { status: 200 });
+    }
+    throw new Error(`unexpected telemetry fetch: ${url}`);
+  };
+  const { ctx, settle } = makeWaitUntilCtx();
+
+  const resp = await handler(makeReq('POST', { origin: 'https://worldmonitor.app' }), ctx);
+  assert.equal(resp.status, 429);
+  await settle();
+
+  assert.equal(events.length, 1);
+  assert.equal(events[0].status, 429);
+  assert.equal(events[0].reason, 'rate_limit_429');
+});
+
+test('telemetry stops delivery attempts when the Axiom sink is repeatedly unavailable', async () => {
+  process.env.USAGE_TELEMETRY = '1';
+  process.env.AXIOM_API_TOKEN = 'axiom-test-token';
+  let axiomAttempts = 0;
+  globalThis.fetch = async (input) => {
+    const url = input instanceof URL ? input.href : typeof input === 'string' ? input : input.url;
+    if (url.includes('fake.upstash.io')) {
+      return new Response(JSON.stringify([{ result: [29, 30] }]), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+    if (url.includes('axiom.co')) {
+      axiomAttempts += 1;
+      throw new Error('Axiom unavailable');
+    }
+    throw new Error(`unexpected telemetry fetch: ${url}`);
+  };
+
+  for (let index = 0; index < 20; index += 1) {
+    const { ctx, settle } = makeWaitUntilCtx();
+    const response = await handler(makeReq('POST', { origin: 'https://worldmonitor.app' }), ctx);
+    assert.equal(response.status, 200);
+    await settle();
+  }
+  assert.equal(axiomAttempts, 20);
+
+  const { ctx, settle } = makeWaitUntilCtx();
+  const response = await handler(makeReq('POST', { origin: 'https://worldmonitor.app' }), ctx);
+  assert.equal(response.status, 200);
+  await settle();
+  assert.equal(axiomAttempts, 20, 'open circuit breaker drops later telemetry delivery attempts');
+});
+
+test('telemetry probes and closes the circuit after the outage window elapses', async () => {
+  process.env.USAGE_TELEMETRY = '1';
+  process.env.AXIOM_API_TOKEN = 'axiom-test-token';
+  const originalDateNow = Date.now;
+  let now = 1_000_000;
+  let axiomAttempts = 0;
+  let axiomAvailable = false;
+  Date.now = () => now;
+  globalThis.fetch = async (input) => {
+    const url = input instanceof URL ? input.href : typeof input === 'string' ? input : input.url;
+    if (url.includes('fake.upstash.io')) {
+      return new Response(JSON.stringify([{ result: [29, 30] }]), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+    if (url.includes('axiom.co')) {
+      axiomAttempts += 1;
+      if (!axiomAvailable) throw new Error('Axiom unavailable');
+      return new Response('{}', { status: 200 });
+    }
+    throw new Error(`unexpected telemetry fetch: ${url}`);
+  };
+
+  try {
+    for (let index = 0; index < 20; index += 1) {
+      const { ctx, settle } = makeWaitUntilCtx();
+      await handler(makeReq('POST', { origin: 'https://worldmonitor.app' }), ctx);
+      await settle();
+    }
+    now += 5 * 60 * 1000 + 1;
+    axiomAvailable = true;
+
+    const recovered = makeWaitUntilCtx();
+    await handler(makeReq('POST', { origin: 'https://worldmonitor.app' }), recovered.ctx);
+    await recovered.settle();
+    assert.equal(axiomAttempts, 21, 'a single half-open delivery probes the recovered sink');
+
+    const resumed = makeWaitUntilCtx();
+    await handler(makeReq('POST', { origin: 'https://worldmonitor.app' }), resumed.ctx);
+    await resumed.settle();
+    assert.equal(axiomAttempts, 22, 'a successful probe closes the circuit for later events');
+  } finally {
+    Date.now = originalDateNow;
+  }
 });
 
 test('no-key session refresh preserves existing HttpOnly key cookies', async () => {
