@@ -29,9 +29,16 @@ description: "六标签页贸易政策面，涵盖限制措施、关税趋势、
 
 ## 数据来源
 
-来自 `@/services/trade` 的六种响应形状，均由 Trade service 支持：
+来自 `@/services/trade` 的六种响应形状，均由 `TradeService` 中生成的 sebuf REST RPC 支持。面板外壳免费；关税趋势与 Comtrade 调用使用 `premiumFetch`，因为这两条路径是付费传输路径，而限制、流、壁垒与海关收入使用公开客户端。海关收入还会在回退到 RPC 之前检查 bootstrap 缓存键 `customsRevenue`。
 
-- `GetTradeRestrictionsResponse` / `GetTariffTrendsResponse` / `GetTradeFlowsResponse` / `GetTradeBarriersResponse` / `GetCustomsRevenueResponse` / `ListComtradeFlowsResponse`。
+| 标签页 | 方法 + 路由 | 支撑内容 |
+|---|---|---|
+| `restrictions` | `GET /api/trade/v1/get-trade-restrictions` | WTO 限制列表，含国家过滤器与上游不可用状态。 |
+| `tariffs` | `GET /api/trade/v1/get-tariff-trends` | 申报国与伙伴国之间的付费关税率时间序列。 |
+| `flows` | `GET /api/trade/v1/get-trade-flows` | 双边商品贸易流行与同比上下文。 |
+| `barriers` | `GET /api/trade/v1/get-trade-barriers` | 按国家或措施类型筛选的 SPS/TBT 壁垒通报。 |
+| `revenue` | `GET /api/trade/v1/get-customs-revenue` | 美国财政部海关关税收入；bootstrap 优先，通过 `customsRevenue`。 |
+| `comtrade` | `GET /api/trade/v1/list-comtrade-flows` | 付费 UN Comtrade 战略商品流搜索，含异常标志。 |
 
 `revenue` 标签页的美国财政部数据源特别敏感 — 请参见更新日志中 "US Treasury customs revenue in Trade Policy panel" 条目（`#1663`）。
 
@@ -41,8 +48,8 @@ description: "六标签页贸易政策面，涵盖限制措施、关税趋势、
 
 ## 层级与门控
 
-**免费。** 变体注册中无 `premium` 标志。Trade service RPC 是公开的。
+**面板外壳免费。** 变体注册中无 `premium` 标志。生成的 REST 服务是混合的：限制、流、壁垒与海关收入为公开；`get-tariff-trends` 与 `list-comtrade-flows` 为付费 RPC 路径，在无授权会话或 API 密钥时降级为空数据。
 
 ## API 参考
 
-- [Trade service](/api/TradeService.openapi.yaml) — 所有六个标签页支持 RPC 的完整 OpenAPI。
+- [Trade service](/api/TradeService.openapi.yaml) — 六个标签页支持 RPC 的完整 schema 与查询参数。

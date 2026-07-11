@@ -1,6 +1,6 @@
 ---
 title: "管道登记表方法论"
-description: "World Monitor 如何在 Energy Atlas 上为全球油气管道进行策展和归属状态标注。"
+description: "World Monitor 如何为显示在 Energy Atlas 地图图层上的全球油气管道进行策展和运营状态归属。"
 ---
 
 ## 范围
@@ -155,7 +155,7 @@ URL 模式稳定：`globalenergymonitor.org/wp-content/uploads/YYYY/MM/GEM-{GGIT
 | 症状 | 原因 | 修复 |
 |---|---|---|
 | 转换器以 `GEM_GAS_GEOJSON env vars are required` 退出 | 未设置环境变量 | 同时设置 `GEM_GAS_GEOJSON` 和 `GEM_OIL_GEOJSON` 指向解压后的 `.geojson` 文件后重新运行 |
-| 大量行因 `country:Foo|Bar` 被丢弃 | GEM 使用的新国家名称不在 `pycountry` 或别名表中 | 在 `scripts/_gem-geojson-to-canonical.py` 的 `COUNTRY_ALIASES` 中添加别名 |
+| 大量行因 `country:Foo\|Bar` 被丢弃 | GEM 使用的新国家名称不在 `pycountry` 或别名表中 | 在 `scripts/_gem-geojson-to-canonical.py` 的 `COUNTRY_ALIASES` 中添加别名 |
 | 大量行因 `no_capacity` 被丢弃，单位是我们未见过 | GEM 新增了容量单位 | 在转换器的 `gas_capacity()` 或 `oil_capacity()` 中添加换算系数 |
 | 解析器抛出 `schema drift — pipelines[i] missing column "X"` | GEM 在版本间重命名了列 | 解析器会指出缺失的列；在转换器中将其映射回来并重新运行 |
 | `validateRegistry` 拒绝合并后的登记表 | 几乎总是：计数低于 `MIN_PIPELINES_PER_REGISTRY`，或证据来源不在白名单中 | 检查合并后的 JSON；如果行丢弃是真实的，降低下限；如果某行的证据格式错误，修复转换器 |

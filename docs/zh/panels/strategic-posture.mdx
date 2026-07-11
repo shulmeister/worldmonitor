@@ -30,6 +30,15 @@ description: "从缓存的姿态信号和实时海军舰艇移动中计算的战
 - **军事舰艇**：通过 `@/services/military-vessels` 获取实时位置（驱动军事地图图层的同一数据源）。
 - **激增重算**：`@/services/military-surge` 中的 `recalcPostureWithVessels()` 将缓存基线与今日舰艇位置混合，生成显示的 `TheaterPostureSummary`。
 
+## 后端端点
+
+该面板不直接调用每条军事路由。它先读取 bootstrap/缓存姿态数据，然后仅当本地姿态缓存需要新鲜的服务器值时才使用生成的 MilitaryService 客户端。
+
+| 方法 | 路由 | 供给内容 |
+|--------|-------|---------------|
+| `GET` | `/api/military/v1/get-theater-posture` | 卡片列表的主要姿态 RPC。浏览器在回退到此路由之前会检查 bootstrap `theaterPosture`、熔断器缓存和 IndexedDB。 |
+| `GET` | `/api/military/v1/list-military-flights` | 缓存姿态载荷上游、为飞机驱动姿态和激增计算提供数据的源；面板通常消费计算出的姿态输出，而非自行重新获取航班。 |
+
 ## 刷新频率
 
 面板不在轮询计时器上 — 在挂载时获取并在相关外部触发时重新渲染。底层姿态种子在军事 cron 上刷新；实时舰艇位置随 AIS relay 刷新。

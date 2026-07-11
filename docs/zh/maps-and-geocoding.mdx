@@ -56,7 +56,7 @@ country-boundary-overrides.geojson      │
 
 1. `countries.geojson` — 带有 ISO 代码和名称的基础多边形，从 `/data/` 提供（Vercel）
 2. `country-boundary-overrides.geojson` — 来自 [Natural Earth](https://www.naturalearthdata.com/) 的可选更高分辨率多边形，从 R2 CDN（`maps.worldmonitor.app`）提供。通过 `ISO3166-1-Alpha-2`（或 `ISO_A2`）代码匹配；匹配到的要素替换基础几何数据
-3. 基础文件先加载并立即构建国家索引（服务变为可用）。覆盖文件随后获取，带 **3 秒超时** — 失败会被静默忽略。覆盖查找使用 `Map&lt;code, Feature&gt;` 实现 O(1) 匹配
+3. 基础文件先加载并立即构建国家索引（服务变为可用）。覆盖文件随后获取，带 **3 秒超时** — 失败会被静默忽略。覆盖查找使用 `Map<code, Feature>` 实现 O(1) 匹配
 
 ### 索引数据结构
 

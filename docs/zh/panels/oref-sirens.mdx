@@ -1,6 +1,6 @@
 ---
 title: "以色列警报"
-description: "实时 OREF（以色列后方司令部）火箭弹警报源，含 24 小时历史、波次分组和实时活动警报追踪。"
+description: "实时 OREF 以色列后方司令部火箭弹警报源，含 24 小时历史、波次分组和对当前活动警报的实时追踪。"
 ---
 
 **Israel Sirens** 面板（内部 id `oref-sirens`）实时展示 OREF（以色列后方司令部 / Pikud HaOref）民防警报源。当警报活动时，面板显示受影响的地区；当无活动时，显示按波次分组的 24 小时历史，让分析师一眼看到近期模式。
@@ -31,6 +31,13 @@ description: "实时 OREF（以色列后方司令部）火箭弹警报源，含 
 
 - `@/services/oref-alerts` 中的 `fetchOrefHistory()` — 由 `/api/oref-alerts`（镜像 OREF 源的 Railway relay；记录在 [Proxies](/zh/api-proxies) 下）支持。
 - 实时警报通过同一 relay 单独传递；面板的 `setData()` 路径接受带 `configured` 标志 + 活动警报列表的 `OrefAlertsResponse`。
+
+### 后端端点
+
+| 访问面 | 端点 | 备注 |
+|---|---|---|
+| 面板 relay 路径 | `GET /api/oref-alerts` | 活动警报和历史记录的当前浏览器路径。 |
+| 生成的服务 RPC | `GET /api/intelligence/v1/list-oref-alerts` | `mode=MODE_HISTORY` 提供 Redis 历史；实时模式尝试 relay 并回退到缓存计数。 |
 
 ## 刷新频率
 

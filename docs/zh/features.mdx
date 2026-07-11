@@ -1,6 +1,6 @@
 ---
 title: "功能与界面"
-description: "World Monitor 功能完整指南，涵盖交互式地图、数据图层、情报面板、市场数据、面板管理、移动端体验和键盘快捷键。"
+description: "World Monitor 功能完整指南：交互式 3D 地球仪、数据图层、情报面板、市场数据、移动端体验与键盘快捷键。"
 ---
 World Monitor 提供了一套全面的实时全球情报监控功能，从交互式地图和数据图层到市场追踪和可自定义的面板布局。
 
@@ -99,7 +99,7 @@ World Monitor 提供了一套全面的实时全球情报监控功能，从交互
 |-------|---------|
 | **AI 战略态势** | 战区级军事聚合，含打击能力分析 |
 | **战略风险概览** | 综合所有情报模块的组合风险评分 |
-| **国家不稳定指数** | 31 个一级国家的实时 CII v7 稳定性评分和带符号的 24 小时变动增量 |
+| **国家不稳定指数** | 31 个一级国家的实时 CII v8 稳定性评分和带符号的 24 小时变动增量 |
 | **基础设施级联** | 光缆、管道和咽喉点的依赖性分析 |
 | **实时情报** | GDELT 驱动的主题信息流（军事、网络、核、制裁） |
 | **情报信息流** | 精选的国防和安全新闻来源 |
@@ -109,7 +109,7 @@ World Monitor 提供了一套全面的实时全球情报监控功能，从交互
 | **流离失所追踪** | UN OCHA HAPI 难民、寻求庇护者和境内流离失所者数据，含来源国/接收国视角 |
 | **海湾经济体** | 6 个海湾合作委员会国家（沙特、阿联酋、卡塔尔、科威特、巴林、阿曼）的指数、货币和石油数据 |
 | **WTO 贸易政策** | 活跃贸易限制、关税趋势、双边贸易流和 SPS/TBT 壁垒 |
-| **央行与 BIS** | 通过 BIS 数据获取的 13 个央行的政策利率和货币政策决定 |
+| **央行、BIS 与 IMF** | 来自 14 个央行与超国家金融机构的政策利率与机构金融信号 |
 | **市场观察列表** | 用户自定义的股票/大宗商品/加密货币代码列表（最多 50 个代码） |
 
 这些面板通过应用评分算法、趋势检测和跨源相关性分析，将原始信号转化为可执行的情报。
@@ -245,7 +245,7 @@ World Monitor 提供了一套全面的实时全球情报监控功能，从交互
 
 两个互补的国家评分系统：
 
-- **[国家不稳定指数](/zh/country-instability-index)** — 高频 CII v7 压力评分，含带符号的 24 小时变动增量，融合 31 个一级国家的动荡、冲突、安全和信息信号。
+- **[国家不稳定指数](/zh/country-instability-index)** — 高频 CII v8 压力评分，含带符号的 24 小时变动增量，融合 31 个一级国家的动荡、冲突、安全和信息信号。
 - **[国家韧性指数](/zh/methodology/country-resilience-index)** — 针对涵盖 6 个领域和 20 个活跃维度（归入 3 大支柱：结构准备度、实时冲击暴露、恢复能力；另含 2 个为保持 schema 连续性而保留的退役维度）的 196 国公开可排序范围的 0-100 韧性评分，每 6 小时刷新，来源于官方/权威数据提供方，含透明的插补。
 
 CII 和 CRI 回答不同的问题，不可互换：CII 是短期的压力；CRI 是结构韧性加实时冲击暴露。
@@ -257,7 +257,7 @@ CII 和 CRI 回答不同的问题，不可互换：CII 是短期的压力；CRI 
 - **地图导航**：跳转到任何区域（全球、MENA、欧洲、亚太、美洲、非洲、大洋洲）
 - **图层预设和单个图层**：翻转预设（军事、金融、基础设施、情报、全部、无、最小化）或按名称切换单个图层（AIS、航班、冲突、光缆、火灾、GPS 干扰、卫星等）
 - **按系列分类的面板**：
-  - **AI 与情报**：[AI 预测](/zh/panels/forecast)、[最新简报](/zh/panels/latest-brief)、[WM 分析师](/zh/panels/chat-analyst)、[AI 市场影响](/zh/panels/market-implications)、[推演局势](/zh/panels/deduction)、[每日市场简报](/zh/panels/daily-market-brief)、[区域情报](/zh/panels/regional-intelligence)、[AI 战略态势](/zh/panels/strategic-posture)
+  - **AI 与情报**：[AI 预测](/zh/panels/forecast)、[最新简报](/zh/panels/latest-brief)、[WM 分析师](/zh/panels/chat-analyst)、[AI 市场影响](/zh/panels/market-implications)、[推演局势](/zh/panels/deduction)、[每日市场简报](/zh/panels/daily-market-brief)、[区域情报](/zh/panels/regional-intelligence)、[AI 战略态势](/zh/panels/strategic-posture)、[威胁时间线](/zh/panels/threat-timeline)
   - **市场与交易**：[高级股票分析](/zh/panels/stock-analysis)、[高级回测](/zh/panels/stock-backtest)、[WSB 股票扫描器](/zh/panels/wsb-ticker-scanner)，以及[指标与信号](/zh/panels/indicators-and-signals)目录（恐惧与贪婪、宏观磁贴、收益率曲线、财报/经济日历、ETF 资金流、加密板块等）
   - **地缘政治与风险**：[国家不稳定](/zh/country-instability-index)、[国家韧性](/zh/methodology/country-resilience-index)、[战略风险](/zh/strategic-risk)、[基础设施级联](/zh/infrastructure-cascade)
   - **贸易与供应链**：[贸易政策](/zh/panels/trade-policy)、[供应链](/zh/panels/supply-chain)、[制裁压力](/zh/panels/sanctions-pressure)、[霍尔木兹贸易追踪器](/zh/panels/hormuz-tracker)、[能源危机追踪器](/zh/panels/energy-crisis)
@@ -274,6 +274,7 @@ CII 和 CRI 回答不同的问题，不可互换：CII 是短期的压力；CRI 
 ## 数据导出
 
 - 导出当前仪表板状态为 CSV 和 JSON
+- 国家档案证据包，以便携 Markdown 形式提供，含来源链接和可用时的新鲜度说明
 - 从快照进行历史回放
 
 ---
@@ -637,6 +638,7 @@ APT 标记显示为具有独特样式的警告三角形。点击标记显示：
 - **点击标记** - 显示含完整上下文的详细弹窗
 - **悬停标记** - 显示含摘要信息的工具提示
 - **图层切换** - 显示/隐藏数据图层
+- **图层说明** - 从图层选择器打开紧凑卡片，查看图层的用途、来源/提供方、新鲜度预期、置信度说明、局限性与相关面板
 
 ### 地图标记设计
 

@@ -1,6 +1,6 @@
 ---
 title: "WM Analyst"
-description: "对话式 AI 分析师，使用 WorldMonitor 的实时缓存回答有关当前地缘政治、市场、军事和预测形势的临时问题。"
+description: "对话式 AI 分析师，使用 World Monitor 的实时缓存层回答有关地缘政治、市场、军事和预测的临时问题。"
 ---
 
 **WM Analyst** 面板（内部 id `chat-analyst`）是仪表盘的对话式情报界面：一个聊天界面，你可以直接输入问题——"红海今天发生了什么？"、"哪些经济体对霍尔木兹海峡关闭最为脆弱？"——并获得基于实时 WorldMonitor 缓存的、具有来源感知的结构化回答。
@@ -13,6 +13,7 @@ description: "对话式 AI 分析师，使用 WorldMonitor 的实时缓存回答
 
 - **快捷操作按钮** 位于面板顶部 — `Situation`（世界简报）、`Markets`、`Conflicts`、`Forecasts`、`Risk`。点击运行预构建查询。
 - **领域选择器** — `All` / `Geo` / `Market` / `Military`（及更多）。限定分析师提取的缓存范围。
+- **仪表盘控制** — 一个可选的 `Control dashboard` 开关，带 `Pause` 控制。启用时，经模式校验的分析师动作事件可聚焦已活跃的面板、移动地图视图或切换允许的地图图层。关闭或暂停时，回答仍会流式返回，但仪表盘动作会被跳过。
 - **输入框** — 自由文本输入；Enter 发送。
 
 面板 id 为 `chat-analyst`；规范组件为 `src/components/ChatAnalystPanel.ts`。标题 "WM Analyst" 见 `src/config/panels.ts:52`。
@@ -28,6 +29,12 @@ description: "对话式 AI 分析师，使用 WorldMonitor 的实时缓存回答
 
 没有独立的 `/chat-analyst/v1/*` RPC 接口 — 这是一个一等边缘端点，而非 proto 生成的 RPC。
 
+## 仪表盘控制动作
+
+仪表盘控制 v1 仅限应用内和进程内。`/api/chat-analyst` 可在回答旁流式返回已校验的动作事件，而 `src/app/agent-bus-applier.ts` 是唯一变更面板或地图的客户端写入边界。applier 在应用任何动作之前会强制执行权益检查、活跃面板存在性、地图可用性、变体允许的图层、渲染器可执行性以及高级图层门控。
+
+此版本不暴露外部 MCP 写入工具、Convex 动作队列和跨用户命令投递。
+
 ## 刷新频率
 
 每次发送都是一次新的 LLM 调用 — 不缓存分析师回答。典型响应延迟为 3-15 秒，取决于问题复杂度和上游缓存新鲜度。
@@ -39,4 +46,4 @@ description: "对话式 AI 分析师，使用 WorldMonitor 的实时缓存回答
 ## API 参考
 
 - [AI 情报](/zh/ai-intelligence) — LLM 支持的分析师管道概述。
-- 对于脚本化使用，最接近的 MCP 等价物是 [`analyze_situation`](/zh/mcp-overview) 和 [`get_world_brief`](/zh/mcp-overview)。
+- 对于脚本化使用，最接近的 MCP 等价物是 [`analyze_situation`](/zh/mcp-overview#ai-intelligence-live-llm) 和 [`get_world_brief`](/zh/mcp-overview#ai-intelligence-live-llm)。

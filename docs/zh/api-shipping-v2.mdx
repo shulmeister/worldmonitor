@@ -76,7 +76,7 @@ GET /api/v2/shipping/route-intelligence?fromIso2=AE&toIso2=NL&cargoType=tanker&h
 
 ### `POST /api/v2/shipping/webhooks`
 
-注册用于咽喉要道中断警报的 webhook。返回 `201 Created`。
+注册用于咽喉要道中断警报的 webhook。返回 `200 OK`。
 
 **请求**：
 ```json
@@ -89,9 +89,9 @@ GET /api/v2/shipping/route-intelligence?fromIso2=AE&toIso2=NL&cargoType=tanker&h
 
 - `callbackUrl` —— 必填，仅限 HTTPS，不得解析为私有/回环地址（注册时有 SSRF 防护）。
 - `chokepointIds` —— 可选。省略或传入空数组则订阅**所有**已注册的咽喉要道。未知 ID 返回 `400`。
-- `alertThreshold` —— 数值 0-100（默认 `50`）。超出此范围的值返回 `400 "alertThreshold must be a number between 0 and 100"`。
+- `alertThreshold` —— 数值 0-100（默认 `50`）。超出此范围的值返回 `400` 校验响应，描述为 `alertThreshold must be between 0 and 100`。
 
-**响应（`201`）**：
+**响应（`200`）**：
 ```json
 {
   "subscriberId": "wh_a1b2c3d4e5f6a7b8c9d0e1f2",
@@ -153,7 +153,7 @@ GET /api/v2/shipping/route-intelligence?fromIso2=AE&toIso2=NL&cargoType=tanker&h
 POST <callbackUrl>
 Content-Type: application/json
 X-WM-Signature: sha256=<HMAC-SHA256(body, secret)>
-X-WM-Delivery-Id: <ulid>
+X-WM-Delivery-Id: whd_<32 lowercase hex chars>
 X-WM-Event: chokepoint.disruption
 
 {
@@ -168,3 +168,33 @@ X-WM-Event: chokepoint.disruption
 ```
 
 投递 worker 在每次发送前重新解析 `callbackUrl`，并针对 `PRIVATE_HOSTNAME_PATTERNS` 重新检查，以缓解 DNS 重绑定问题。投递为至少一次 —— 消费者必须通过 `X-WM-Delivery-Id` 处理重复项。
+
+### 验证投递
+
+每次投递都已签名，因此你可以确认它确实来自 WorldMonitor。`X-WM-Signature` 为 `sha256=<hex>`，其中 `<hex>` 是以注册时返回的 `secret` 为密钥的**原始请求体的 HMAC-SHA256**的小写十六进制值。
+
+验证方法：对**完全按接收时的**字节重新计算 `sha256=` + `hex(HMAC_SHA256(key=secret, message=rawBody))`（不要重新序列化 JSON），并与 `X-WM-Signature` 在常数时间内比较。将 `secret` 字符串**原样**作为 HMAC 密钥使用 — 不要对其进行十六进制解码。若签名不同则拒绝该投递。
+
+```js
+import { createHmac, timingSafeEqual } from 'node:crypto';
+
+// rawBody: the exact request body bytes; header: the X-WM-Signature value;
+// secret: the value returned by RegisterWebhook (used verbatim as the key).
+function verifyWorldMonitorWebhook(rawBody, header, secret) {
+  const expected = 'sha256=' + createHmac('sha256', secret).update(rawBody).digest('hex');
+  const a = Buffer.from(header ?? '');
+  const b = Buffer.from(expected);
+  return a.length === b.length && timingSafeEqual(a, b);
+}
+```
+
+签名契约也以机器可读形式发布于 [OpenAPI spec](https://worldmonitor.app/openapi.json) 中 `webhooks` 下的 `chokepoint.disruption` 条目。
+
+#### 用已签名样本测试你的验证
+
+一个可直接验证的样本投递发布于 [`/.well-known/webhook-sample.json`](https://www.worldmonitor.app/.well-known/webhook-sample.json)。它携带一个固定的样本 `secret`、确切的原始 `body` 字符串，以及所得的 `signature`。对 `body` 的确切字节重新计算 `sha256=` + `hex(HMAC_SHA256(key=secret, message=body))` 并确认它等于 `signature` — 如果匹配，你的验证将接受真实投递。（样本 `secret` 是固定值；每个正式订阅会从 RegisterWebhook 获得自己的 `secret`。）
+
+```js
+const s = await (await fetch('https://www.worldmonitor.app/.well-known/webhook-sample.json')).json();
+verifyWorldMonitorWebhook(s.body, s.signature, s.secret); // → true
+```

@@ -1,6 +1,6 @@
 ---
 title: "消费者价格"
-description: "市场层面的零售杂货/必需品价格追踪 — 概览、类别细分、涨跌品、零售商价差和来源新鲜度 — 含 7/30/90 天窗口。"
+description: "按市场的零售杂货与必需品价格追踪 — 概览、类别、涨跌品、零售商价差与新鲜度，含 7/30/90 天窗口。"
 ---
 
 **Consumer Prices** 面板是仪表盘的零售通胀和一篮子物价面。它跟踪市场（国家）层面的实际货架价格，按类别和零售商细分，并公开来源新鲜度，让读者可以看到底层爬取上次运行的时间。
@@ -34,17 +34,18 @@ description: "市场层面的零售杂货/必需品价格追踪 — 概览、类
 
 ## 数据来源
 
-五个 RPC 支持五个标签页：
+五个标签页 RPC 加一个迷你图 RPC 支持该面板：
 
-| 标签页 | RPC |
+| 表面 | RPC |
 |---|---|
 | 概览 | `GET /api/consumer-prices/v1/get-consumer-price-overview` |
+| 概览迷你图 | `GET /api/consumer-prices/v1/get-consumer-price-basket-series` |
 | 类别 | `GET /api/consumer-prices/v1/list-consumer-price-categories` |
 | 涨跌品 | `GET /api/consumer-prices/v1/list-consumer-price-movers` |
 | 价差 | `GET /api/consumer-prices/v1/list-retailer-price-spreads` |
 | 健康 | `GET /api/consumer-prices/v1/get-consumer-price-freshness` |
 
-还有一个 `get-consumer-price-basket-series` RPC，内部用于迷你图数据。上游数据从零售商价格源爬取并按市场聚合。
+上游数据由配套的 `consumer-prices-core` 服务从零售商价格源爬取，并按市场和篮子发布为 Redis 快照。
 
 ## 刷新频率
 

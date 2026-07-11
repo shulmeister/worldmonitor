@@ -1,6 +1,6 @@
 ---
 title: "能源危机追踪器"
-description: "IEA 2026 Energy Crisis Policy Response Tracker — 政府为应对中东冲突和霍尔木兹供应中断而节约能源和支持消费者的措施。"
+description: "IEA 2026 Energy Crisis Policy Response Tracker — 在中东冲突和霍尔木兹供应中断期间节约能源的政府措施。"
 ---
 
 **Energy Crisis Tracker** 面板（内部 id `energy-crisis`）展示 IEA 的 2026 年政策数据库：为应对中东冲突和霍尔木兹海峡驱动的能源供应中断而宣布的政府措施完整目录。根据 Hormuz Trade Tracker 的上下文，全球约 20% 的石油每日通过该海峡，因此政策面响应数据与供应面流量数据同等重要。
@@ -25,8 +25,11 @@ description: "IEA 2026 Energy Crisis Policy Response Tracker — 政府为应对
 
 ## 数据来源
 
-- 通过生成的 Economic service 客户端调用 `EconomicServiceClient.getEnergyCrisisPolicies()`。
-- 面板优先使用水合的 bootstrap 载荷（`getHydratedData()`），回退到新的 RPC 调用 — 标准的 WorldMonitor "一次 bootstrap，不重复获取" 模式。
+面板优先使用水合的 bootstrap 载荷（`energyCrisisPolicies`），回退到生成的 Economic service RPC。
+
+| 方法 + 路由 | 数据供给 |
+|---|---|
+| `GET /api/economic/v1/get-energy-crisis-policies` | IEA 2026 Energy Crisis Policy Response Tracker 政策，可按国家或类别筛选。 |
 
 根据面板内的信息工具提示，上游来源：**IEA 2026 Energy Crisis Policy Response Tracker**。追踪约 60 个国家的措施，近 200 个政策条目。
 

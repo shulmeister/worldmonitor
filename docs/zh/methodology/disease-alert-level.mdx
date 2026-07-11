@@ -22,8 +22,8 @@ description: "疾病爆发面板如何基于条目标题与描述上的关键词
 分类器看到的是经过按来源解析器规范化后的条目 `title` 与 `desc` 字段：
 
 - WHO Disease Outbreak News（`whoNormalizeItem`）
-- HealthMap / ProMED RSS（`rssNormalizeItem`）
-- TGH（`tghNormalizeItem`）
+- CDC HAN 和 Outbreak News Today RSS（`rssNormalizeItem`）
+- ThinkGlobalHealth 疾病追踪器，由 ProMED 来源的实时告警支持（`tghNormalizeItem`）
 
 没有数值评分权重。标签纯粹是分类的，面板中显示的顺序是 `alert > warning > watch`。
 

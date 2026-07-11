@@ -1,6 +1,6 @@
 ---
 title: "科技准备度指数"
-description: "国家层面的科技准备度排名，行带国旗标签，数据来源于 Economic service。每 6 小时刷新。"
+description: "国家层面的科技准备度排名，行带国旗标签，数据来源于 bootstrap 水合的 World Bank 指标缓存。每 6 小时刷新。"
 ---
 
 **Tech Readiness Index** 面板（内部 id `tech-readiness`）按综合科技准备度分数对国家排名 — 当你想衡量"哪些市场在科技基础设施、人才和采用方面结构性地处于有利位置？"时所需的那种比较视图。
@@ -20,7 +20,8 @@ description: "国家层面的科技准备度排名，行带国旗标签，数据
 
 ## 数据来源
 
-- `@/services/economic` 中的 `getTechReadinessRankings()` — 封装 Economic service 的科技准备度 RPC。
+- `@/services/economic` 中的 `getTechReadinessRankings()` — 可用时读取 bootstrap 水合的 `techReadiness` 数据，然后回退到 `GET /api/bootstrap?keys=techReadiness`。
+- 数据由 World Bank 指标种子管道预计算；前端不直接调用 World Bank API。
 
 ## 刷新频率
 
@@ -28,8 +29,8 @@ description: "国家层面的科技准备度排名，行带国旗标签，数据
 
 ## 层级与门控
 
-**免费。** 两个变体注册中均无 `premium` 标志。Economic service RPC 是公开的。
+**免费。** 两个变体注册中均无 `premium` 标志。bootstrap 水合/回退路径是公开的。
 
 ## API 参考
 
-- [Economic service](/api/EconomicService.openapi.yaml) — 涵盖科技准备度排名 RPC 和更广泛的宏观指标族。
+- [平台端点](/zh/api-platform#bootstrap) — 涵盖 `/api/bootstrap`，包括诸如 `techReadiness` 的按键水合。

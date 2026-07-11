@@ -6,7 +6,7 @@ rss: true
 
 World Monitor 的所有重要变更均记录于此。通过 [RSS](https://www.worldmonitor.app/docs/changelog/rss.xml) 订阅以获取最新动态。
 
-<Update label="Unreleased" description="Unreleased" tags={["Trade", "Intelligence", "Search", "Supply Chain", "Maritime", "Security"]}>
+<Update label="Unreleased" description="Unreleased" tags={["Trade", "Intelligence", "Search", "Supply Chain", "Maritime", "Security", "MCP"]}>
 
 ### 新增
 
@@ -23,6 +23,8 @@ World Monitor 的所有重要变更均记录于此。通过 [RSS](https://www.wo
 
 ### 变更
 
+- **MCP 缓存工具默认上限**：`get_country_macro`、`get_eu_housing_cycle`、`get_eu_quarterly_gov_debt` 与 `get_eu_industrial_production` 现在省略 `limit` 时将返回的国家映射上限设为 30 条。这使这些工具与文档中其他缓存工具使用的 MCP `DEFAULT_LIST_LIMIT` 行为一致，但这是一项面向消费者的默认值变更：需要完整国家集合的集成必须显式传入 `limit: 0`。
+- **CII 公式 `v8`**：修复了失效的 UCDP 冲突下限归属。服务器评分器从缓存的 `conflict:ucdp-events:v1` feed 读取了不存在的 `intensity_level` / `type_of_violence` 字段（该 feed 的行实际携带 `violenceType`、`deathsBest` 与 `dateStart`），因此 UCDP 从未应用其战争（下限 70）/ 轻度冲突（下限 50）评分下限，也从未计入 `riskScores` 实时健康/缓存信号覆盖率。UCDP 现按国家在 2 年滚动窗口内分类（总死亡大于 1000 或事件数大于 100 时为战争；事件数大于 10 时为轻度冲突），与前端 `deriveUcdpClassifications` 启发式一致。分类器为该 2 年窗口配置，但 Redis 写入器目前抓取最新的 6 个 UCDP 页面，并保留来自 365 天滚动事件切片的至多 2,000 条映射事件；中继 `/ucdp-events` 读取器最多可抓取 12 个页面，但应用相同的 365 天过滤。在 UCDP 保留范围随生产 API 体量与 Redis 负载保障扩大之前，实时评分受种子输入约束。健康覆盖率指标的冲突族现由 ACLED API 路径或 UCDP 任一满足，因此当 UCDP 健康时，稀薄/空白的 ACLED 窗口不再将健康状态翻转为 `COVERAGE_PARTIAL`。活跃 UCDP 冲突国家（如 UA/PK/MX 获得战争下限）的 `combinedScore` 值上升；风险评分缓存键族迁移至 `risk:scores:sebuf:v8`，发出的 `methodology_version` 现为 `v8`；客户端应重新建立基线。
 - **CII 公式 `v7`**：第二批差距闭合的得分归属逻辑现已变更。坐标归属在成对边界规则之前先解决三方边界框重叠，因此 Punggye-ri 归属朝鲜（KP）而非中国（CN），Lublin 归属波兰（PL）而非乌克兰（UA）；种子镜像使用相同的解析器。定向探测还覆盖拉萨、加济安泰普、克尔曼沙阿、奎达/伊斯兰堡、达曼、塔布克、瑞丽、别洛戈尔斯克、北海道北部以及安曼。气候异常加成现已覆盖生产者发出的 `Europe`、`East Asia` 和 `Latin America` 区域，恢复了 KP/KR/JP/PL/DE/FR/GB/VE 的覆盖；未来未知区域可在可用时通过异常坐标进行回退。受影响记录的 `combinedScore` 值可能发生偏移，风险评分缓存键族迁移至 `risk:scores:sebuf:v7`，发出的 `methodology_version` 现为 `v7`；客户端应重新建立基线。剩余的坐标归属仍为矩形近似，并非完整的点在多边形内边界几何判定。
 - **CII 公式 `v6`**：得分归属逻辑现已作为一批次变更，涵盖国家文本、坐标和气候异常输入。种子与服务器端的国家解析器在 token/短语匹配、里奥格兰德美/墨边境段、朝鲜半岛西部非军事区、RU/UA、IN/PK、CN/RU 以及 RU/JP 边界框重叠上达成一致；`north korean` 归属朝鲜（KP），`taiwanese` 归属台湾（TW），而裸 `korean` 仍然歧义。气候异常现在将发出的生产者区域（`Ukraine`、`California`、`Amazon`、`Taiwan Strait`、`Caribbean` 等）输入 CII，并将枚举严重程度转换为数值气候加成尺度。受影响记录的 `combinedScore` 值可能发生偏移，风险评分缓存键族迁移至 `risk:scores:sebuf:v6`，发出的 `methodology_version` 现为 `v6`；客户端应重新建立基线。
 - **CII 公式 `v5`**：`dynamicScore` 现为 `-100..100` 范围内的有符号移动增量，来源于约 24 小时前的有效 CII 快照。正值表示风险上升，负值表示风险下降，`0` 表示稳定或无有效先前快照。浏览器回退趋势死区现已与服务器规则一致（`> 1` / `< -1`，对整点得分而言相当于两点阈值）。`combinedScore` 系数不变，风险评分缓存键族迁移至 `risk:scores:sebuf:v5`，发出的 `methodology_version` 现为 `v5`；此前将 `dynamicScore` 视为非负实时得分的客户端应重新建立基线。
@@ -40,6 +42,7 @@ World Monitor 的所有重要变更均记录于此。通过 [RSS](https://www.wo
 
   这些别名将在下一次 v1→v2 破坏性变更时退役（追踪于 [#3282](https://github.com/koala73/worldmonitor/issues/3282)）。
 
+- `POST /api/scenario/v1/run-scenario` 在成功入队时**再次返回 `202 Accepted`**，恢复 sebuf 迁移前的契约（取代下方的 `200 OK` 条目）。响应现还携带一个 `Location` 头，指向 `get-scenario-status` 轮询 URL（与响应体 `statusUrl` 同值），完善标准 REST 异步任务模式。网关通过状态覆盖旁路将 sebuf 生成的 200 升级；错误状态码（400/403/429/502）不变。将任何 `2xx` 视为成功 —— 基于响应体 `status === "pending"` 分支判断的临时指南仍然有效。
 - `POST /api/scenario/v1/run-scenario` 现返回 `200 OK`，而非迁移前的 `202 Accepted`。sebuf 的 HTTP 注解不携带每个 RPC 的状态码。请基于响应体的 `status === "pending"` 判断，而非 `response.status === 202`。`statusUrl` 字段保留不变。
 
 ### 安全

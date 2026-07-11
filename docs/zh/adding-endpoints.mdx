@@ -157,7 +157,7 @@ export const seismologyHandler: SeismologyServiceHandler = {
 npx tsc --noEmit   # 应该零错误通过
 ```
 
-路由已经生效。`createSeismologyServiceRoutes()` 会自动识别新的 RPC——无需对 `api/[[...path]].ts` 或 `vite.config.ts` 做任何修改。
+路由已通过 `api/seismology/v1/[rpc].ts` 中的领域网关生效。`createSeismologyServiceRoutes()` 会自动识别新的 RPC——无需编辑路由表或 `vite.config.ts`。
 
 ### 7. 检查生成的文档
 
@@ -300,19 +300,23 @@ export const weatherHandler: WeatherServiceHandler = {
 };
 ```
 
-### 7. 在网关中注册服务
+### 7. 添加每领域边缘网关
 
-编辑 `api/[[...path]].js`——添加导入并挂载路由：
+创建 `api/weather/v1/[rpc].ts` 作为此服务的薄 Edge 入口点：
 
 ```typescript
-import { createWeatherServiceRoutes } from '../src/generated/server/worldmonitor/weather/v1/service_server';
-import { weatherHandler } from './server/worldmonitor/weather/v1/handler';
+export const config = { runtime: 'edge' };
 
-const allRoutes = [
-  // ... existing routes ...
-  ...createWeatherServiceRoutes(weatherHandler, serverOptions),
-];
+import { createDomainGateway, serverOptions } from '../../../server/gateway';
+import { createWeatherServiceRoutes } from '../../../src/generated/server/worldmonitor/weather/v1/service_server';
+import { weatherHandler } from '../../../server/worldmonitor/weather/v1/handler';
+
+export default createDomainGateway(
+  createWeatherServiceRoutes(weatherHandler, serverOptions),
+);
 ```
+
+不存在仓库范围的 catch-all 网关文件或共享路由数组需要编辑。每个服务拥有其 `api/<domain>/v1/[rpc].ts` 网关，生成的 `create<Service>Routes(...)` 函数为该领域强制 RPC 路径名和 HTTP 注解。
 
 ### 8. 在 Vite 开发服务器中注册
 
@@ -350,6 +354,33 @@ export async function fetchWeatherStations(network?: string): Promise<WeatherSta
 ```bash
 npx tsc --noEmit   # 零错误
 ```
+
+## MCP 暴露决策
+
+每个新的公开 OpenAPI 操作在评审前都需要一个明确的 MCP 决策。MCP 是一个精选的 agent 接口，而非 REST 的 1:1 镜像：暴露安全、可预测且作为工具有用的操作；当操作会变更状态、消耗每次调用的 LLM 或上游预算，或需要手动缓存键审查时，保留为 REST 专属并记录在案。
+
+对每个新增或变更的 RPC 使用以下清单：
+
+- [ ] 决定此操作是否应暴露给 MCP。
+- [ ] 若是，确定归属的 MCP 工具，并将确切的 `METHOD /api/...` 条目添加到该工具的 `_apiPaths`。
+- [ ] 若由缓存支持，确认工具具有正确的 `_cacheKeys` / `_coverageKeys`、新鲜度元数据和 `seed-meta:<key>` 健康覆盖。
+- [ ] 若否，在 `tests/mcp-api-parity.test.mjs` 中添加或更新排除项，附带匹配的类别前缀和具体原因。
+- [ ] 若为 `fetch-on-miss`，包含一个强制的辅助信号（`high-cardinality-input`、`paid-upstream` 或 `llm-cost`），并说明使当前开放 MCP 暴露不安全的上游成本、基数和分层策略。
+- [ ] 若为 `mutating` 或 `llm-passthrough`，在提出 MCP 封装前记录独立的威胁/成本模型。
+- [ ] 运行 `./node_modules/.bin/tsx --test tests/mcp-api-parity.test.mjs` 并在 PR 中包含结果。
+
+`covered` 操作在工具的 `_apiPaths` 条目中声明。对于 REST 专属操作，对等测试接受以下排除类别：
+
+| 类别 | 适用情形 |
+|----------|----------|
+| `mutating` | 处理器写入状态、排队工作、刷新缓存、记录 webhook，或具有其他持久副作用。 |
+| `llm-passthrough` | 该操作调用每次调用的 LLM 工作，不应在没有成本模型的情况下作为通用 MCP 工具开放。 |
+| `fetch-on-miss` | 该操作在缓存冷时可能调用付费、限流、高基数或其他昂贵的上游。在原因中包含一个强制的辅助信号：`high-cardinality-input`、`paid-upstream` 或 `llm-cost`。 |
+| `admin` | 该操作仅限内部，受显式管理员边界保护，例如管理员密钥、仅限内部的中间件或仅限 cron 的路径。 |
+| `manual-mapping` | 该操作使用参数化缓存键、内联 Redis/Convex 结构，或静态对等遍历器无法自动证明的其他映射。 |
+| `deferred-to-future-tool` | 该操作是纯读取且对 agent 有用，但属于未来的 MCP 工具或扩展包，而非当前注册表。 |
+
+MCP 参考文档在 [MCP 概览](/zh/mcp-overview#api-coverage) 中渲染当前的 `_apiPaths` 覆盖表。对等测试是当前已覆盖/已排除拆分的权威来源，因此不要依赖 PR 描述中的过时计数。
 
 ## Proto 约定
 

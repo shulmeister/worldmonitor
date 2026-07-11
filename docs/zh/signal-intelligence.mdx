@@ -1,11 +1,14 @@
 ---
 title: "信号情报"
-description: "信号检测、实体关联、来源排名和情报聚合，驱动 World Monitor 的分析引擎。"
+description: "World Monitor 聚合引擎背后的信号检测、实体关联与来源排名 —— 原始 feed 如何变为可操作的情报。"
 ---
 
 ## 信号情报
 
 仪表盘持续分析数据流以检测重要模式和异常。信号显示在顶部徽章（⚡）中，并附带置信度评分。
+
+关于新闻摘要、故事追踪、每日简报、LLM 接地与偏差控制的权威公开方法论，请参见
+[新闻摘要与简报方法论](/zh/methodology/news-digest-and-briefing)。
 
 ### 情报发现徽章
 
@@ -28,7 +31,7 @@ description: "信号检测、实体关联、来源排名和情报聚合，驱动
 
 ### 信号类型
 
-系统在新闻、市场、军事和基础设施领域检测 12 种不同的信号类型：
+系统在新闻、市场、军事和基础设施领域列出 14 种不同的信号类型：
 
 **新闻和来源信号**
 
@@ -37,6 +40,7 @@ description: "信号检测、实体关联、来源排名和情报聚合，驱动
 | **◉ 趋同** | 3 种以上来源类型在 30 分钟内报道同一事件 | 多个独立渠道确认同一事件——重要性可能性更高 |
 | **△ 三角验证** | 通讯社 + 政府 + 情报来源一致 | "权威三角"——当官方渠道、通讯社和国防专家都报道同一事件时 |
 | **🔥 速度飙升** | 话题提及率翻倍且达到 6+ 来源/小时 | 一条新闻正在新闻生态系统中快速扩散 |
+| **📊 关键词激增** | 词条频率显著高于基线 | 一个关键词正在受监控来源中爆发——发展中专线的早期迹象 |
 
 **市场信号**
 
@@ -442,3 +446,12 @@ Convergence Zones: Baltic Sea (military_flight + military_vessel),
 Active Signal Types: 5 of 5
 Total Signals: 47
 ```
+
+### 支撑端点
+
+| 信号族 | 端点 | 备注 |
+|---|---|---|
+| 公司富化 | `GET /api/intelligence/v1/get-company-enrichment` | 为一家公司聚合 GitHub、SEC、Hacker News 与推断的技术栈上下文。 |
+| 公司活动信号 | `GET /api/intelligence/v1/list-company-signals` | 融资、招聘、扩张、高管与开源活动卡片。 |
+| GDELT 话题时间线 | `GET /api/intelligence/v1/get-gdelt-topic-timeline` | 某情报话题的基调与体量时间线。 |
+| 市场影响卡片 | `GET /api/intelligence/v1/list-market-implications` | 基于实时世界状态生成的 AI 影响卡片；在此记录以避免重复市场领域面板的所有权。 |

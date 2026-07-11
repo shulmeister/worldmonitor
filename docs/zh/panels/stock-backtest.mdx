@@ -20,7 +20,12 @@ description: "已分析代码的历史回报和百分比变化可视化，让你
 
 ## 数据来源
 
-回测由 Railway cron 产出，将先前的分析信号对历史价格序列重放。结果存储在 premium-stock store 中，通过 `@/services/stock-backtest` 获取。面板通过 `renderBacktests(items, source)` 消费 `StockBacktestResult[]`。
+回测由 Railway cron 产出，将先前的分析信号对历史价格序列重放。结果存储在 premium-stock store 中，通过 `@/services/stock-backtest` 获取；过期或缺失的存储行可按需重新计算。
+
+| 方法 + 路由 | 数据供给 |
+|---|---|
+| `GET /api/market/v1/list-stored-stock-backtests` | 新鲜时优先渲染的已存储 premium 回测快照。 |
+| `GET /api/market/v1/backtest-stock` | 针对缺失或过期行的按代码按需回测重算。 |
 
 ## 刷新频率
 
@@ -32,5 +37,5 @@ description: "已分析代码的历史回报和百分比变化可视化，让你
 
 ## API 参考
 
-- [Markets service](/api/MarketService.openapi.yaml) — 底层价格序列和股票分析 RPC。
+- [Markets service](/api/MarketService.openapi.yaml) — `list-stored-stock-backtests` 和 `backtest-stock` 的 schema 与参数。
 - 相关：[Premium 股票分析](/zh/panels/stock-analysis) — 为回测输入提供种子的按代码深度分析。

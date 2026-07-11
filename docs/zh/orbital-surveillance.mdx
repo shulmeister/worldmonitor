@@ -1,6 +1,6 @@
 ---
 title: "轨道监视"
-description: "在 3D 地球仪上进行实时卫星轨道追踪，由 CelesTrak TLE 数据的 SGP4 传播驱动。"
+description: "在 3D 地球仪上进行实时卫星追踪，由 CelesTrak TLE 数据的 SGP4 轨道传播驱动 — 覆盖率、筛选和图钉抽屉。"
 ---
 
 ## 概览
@@ -115,6 +115,13 @@ CelesTrak (free) ──2h──▶ Railway relay ──Redis──▶ Vercel edg
 
 - `api/health.js` 将 `intelligence:satellites:tle:v1` 作为独立键检查
 - 播种元数据以 `maxStaleMin: 180` 检查（3h — 可承受 1 次错过的周期）
+
+### 后端端点
+
+| 访问面 | 端点 | 备注 |
+|---|---|---|
+| 卫星 TLE 镜像 | `GET /api/intelligence/v1/list-satellites` | 生成的 IntelligenceService RPC，读取 `intelligence:satellites:tle:v1`；当前渲染器仍使用下方列出的遗留 `api/satellites.js` 路径。 |
+| SAR / 光学场景搜索 | `GET /api/imagery/v1/search-imagery` | 按 `bbox`、`datetime`、`source` 和 `limit` 的 STAC 后端 Sentinel 搜索，按吸附后的查询缓存。 |
 
 ---
 

@@ -1,13 +1,44 @@
 ---
 title: "CII 风险评分方法论"
-description: "综合不稳定指数（CII）与战略风险汇总背后的方法论：baselineRisk、eventMultiplier、四分量评分与戳记在 CiiScore 上的 v7 公式版本。"
+description: "综合不稳定指数背后的编辑性方法论 — 基线风险、事件乘数、四分量评分与战略风险分档。"
 ---
 
 `GET /api/intelligence/v1/get-risk-scores`（proto `worldmonitor.intelligence.v1.GetRiskScoresResponse`）暴露的 **综合不稳定指数（CII）** 和 **战略风险** 汇总的已发布方法论说明。
 
 这些权重是**编辑性**的——由 WorldMonitor 情报团队基于对历史事件和当前地缘政治姿态的内部审阅撰写。它们**并非派生自已发布的学术指数**、同行评审论文或第三方风险产品。请将这些评分视为有态度的，而非经验性的。本说明的目的是使这些态度可被检查，以便下游消费者决定是否同意。
 
-每个 `CiiScore` 上传输的 `methodology_version` 字段反映了计算评分时本文档的哪个修订版本处于活跃状态。当前版本为 **v7**。
+每个 `CiiScore` 上传输的 `methodology_version` 字段反映了计算评分时本文档的哪个修订版本处于活跃状态。当前版本为 **v8**。
+
+> **v8（2026-06-06）。** 修复了失效的 UCDP 冲突下限归属。服务端
+> 评分器从缓存的 `conflict:ucdp-events:v1` 源读取了不存在的
+> `intensity_level` / `type_of_violence` 字段（该源的行实际携带
+> `violenceType` / `deathsBest` / `dateStart`），因此 UCDP 从未应用其
+> 战争（下限 70）/ 轻度（下限 50）评分下限，也从未计入
+> `riskScores` 实时健康/缓存信号覆盖。UCDP 现按国家在 2 年滚动窗口内分类
+> （战争：死亡总数 > 1000 或事件数 > 100；轻度：事件数 > 10），与前端的
+> `deriveUcdpClassifications` 启发式一致。分类器为该
+> 2 年窗口配置，但 Redis 写入器当前抓取最新的六页 UCDP，
+> 并从 365 天滚动切片中保留最多 2,000 条映射事件。中继
+> `/ucdp-events` 读取器最多可抓取 12 页，但应用相同的 365 天
+> 过滤器。因此，在 UCDP 保留范围通过生产级 API 体量与
+> Redis 载荷保障扩展之前，实时评分受种子输入约束。
+> 健康覆盖度指标的冲突
+> 族现在由 ACLED API 路径**或** UCDP 满足，因此当 UCDP 健康时，
+> 薄/空 ACLED 窗口不再将健康翻转为 `COVERAGE_PARTIAL`。
+> 当前 ACLED 或 UCDP 的健康覆盖语义请参见
+> [国家不稳定指数](/zh/country-instability-index)。
+> 活跃 UCDP 冲突国家的 `combinedScore` 值上升（例如 UA/PK/MX
+> 获得战争下限）；风险评分缓存键家族迁移到
+> `risk:scores:sebuf:v8`，发射的 `methodology_version` 现为 `v8`，固定于
+> `methodology_version` 的客户端应重新基线。
+
+> **v8 修正（2026-06-07）。** 来源发现与可观测性得到澄清，
+> 未改变评分系数、CII 公式版本或
+> `risk:scores:sebuf:v8` 缓存键。UCDP 种子器现在优先选择返回事件的
+> 最新 GED 版本，而非停留在第一个响应版本
+> （[#4200](https://github.com/koala73/worldmonitor/issues/4200)），且
+> CII 刷新路径在 ACLED 对两个比较窗口均返回零事件时发出警告，
+> 以便运维人员区分安静源与鉴权/上游缺口。
 
 > **v7（2026-06-06）。** 第二批 CII 缺口关闭的评分归属发生了变化。坐标归属现在在成对边界规则之前处理三向 bbox 重叠，因此 Punggye-ri 归属到 KP 而非 CN，Lublin 归属到 PL 而非 UA；种子镜像使用相同的解析器。针对 Lhasa、Gaziantep、Kermanshah、Quetta、Islamabad、Dammam、Tabuk、Ruili、Belogorsk、北海道北部和 Amman 添加了定向矩形 bbox 探测。气候异常加成现在覆盖生产者发射的 `Europe`、`East Asia` 和 `Latin America` 区域，恢复了 KP/KR/JP/PL/DE/FR/GB/VE 的加成覆盖，且未知的未来区域名在存在异常坐标时可通过其回退。受影响记录此前归属到错误国家或被忽略处，`combinedScore` 值可能发生变化。风险评分缓存键家族迁移到 `risk:scores:sebuf:v7`；固定于 `methodology_version` 的客户端应重新基线。剩余的坐标归属仍是矩形近似，而非完整的点在多边形内边界几何。
 
@@ -61,6 +92,7 @@ composite = baseline * 0.4
 
 - **动荡严重性加成**：高严重性 ACLED 动荡事件（例如骚乱）在 Unrest 分量内添加 `min(20, highSeverityUnrest * 10 * eventMultiplier)`。
 - **冲突平民加成**：针对平民的暴力事件在对数缩放的冲突活动和死亡条款后添加 `min(10, civilianViolence * 3)`。
+- **伊朗地区打击加成**：地理编码的伊朗事件打击，或来自同一源的标题/位置回退匹配，在 Conflict 分量内添加 `min(50, iranStrikes * 3 + highSeverityStrikes * 5)`。高和关键严重性打击因此计两次：一次在每打击项中，一次在高严重性项中。该源是战区强度输入，而非完整的武装冲突伤亡来源；ACLED 和 UCDP 仍是一般冲突锚点。
 - **冲突 OREF 加成**：仅对以色列，活跃 OREF 火箭警报压力在 Conflict 分量内添加 `25 + min(25, activeAlertCount * 5)`，因此分量级 OREF 贡献上限为 `+50`。这与上方列出的复合 `orefBlendBoost` 项分开，后者也仅限以色列且上限为 `+25`。
 - **信息严重性处理**：已分类的头条报道使用权重 `critical = 4`、`high = 2`、`medium/elevated = 1`、`moderate/low = 0.5` 和 `info = 0`。各国威胁摘要信息流使用 `critical = 4`、`high = 2`、`medium = 1`、`low = 0.5` 和 `info = 0`，该威胁摘要子评分上限为 `20`；合并的 Information 分量上限为 `100`。
 
@@ -68,6 +100,49 @@ composite = baseline * 0.4
 
 - **UCDP 下限**：若 UCDP 战争级事件活跃则为 70，若轻微冲突级事件活跃则为 50，否则为 0。
 - **国务院旅行建议下限**：60 对应"请勿旅行"，50 对应"重新考虑旅行"，否则为 0。
+
+警示等级也可在下限应用前添加 `advisoryBoost`：
+"请勿旅行" `+15`，"重新考虑旅行" `+10`，"谨慎" `+5`。服务端优先使用
+可用的实时 `intelligence:advisories:v1` `byCountry` 等级。若被追踪国家无实时等级，它可应用
+`server/worldmonitor/intelligence/v1/get-risk-scores.ts` 中内嵌的国务院兜底表。因此每个 `CiiScore`
+暴露：
+
+| 传输字段 | 取值 | 含义 |
+|---|---|---|
+| `advisory_level` / `advisoryLevel` | `do-not-travel`、`reconsider`、`caution` 或空 | 用于评分加成/下限的警示等级（如有）。 |
+| `advisory_provenance` / `advisoryProvenance` | `live`、`fallback`、`absent` | `advisory_level` 来自实时已播种警示源、内嵌兜底表，还是无警示输入。 |
+
+### 警示兜底表
+
+当实时安全警示源对某 Tier-1 国家无当前等级时，
+评分器在同时计算 `advisoryBoost` 和警示评分下限之前应用一个精选兜底等级。只要实时源数据
+存在，实时数据即胜出；兜底不是额外的共识加成。
+
+| 代码 | 国家 | 兜底等级 | 实时等级缺失时的评分效果 |
+|---|---|---|---|
+| `AF` | 阿富汗 | 请勿旅行 | `advisoryBoost +15`；下限 `60` |
+| `MM` | 缅甸 | 请勿旅行 | `advisoryBoost +15`；下限 `60` |
+| `SY` | 叙利亚 | 请勿旅行 | `advisoryBoost +15`；下限 `60` |
+| `UA` | 乌克兰 | 请勿旅行 | `advisoryBoost +15`；下限 `60` |
+| `YE` | 也门 | 请勿旅行 | `advisoryBoost +15`；下限 `60` |
+| `CU` | 古巴 | 重新考虑 | `advisoryBoost +10`；下限 `50` |
+| `IL` | 以色列 | 重新考虑 | `advisoryBoost +10`；下限 `50` |
+| `IQ` | 伊拉克 | 重新考虑 | `advisoryBoost +10`；下限 `50` |
+| `IR` | 伊朗 | 重新考虑 | `advisoryBoost +10`；下限 `50` |
+| `LB` | 黎巴嫩 | 重新考虑 | `advisoryBoost +10`；下限 `50` |
+| `MX` | 墨西哥 | 重新考虑 | `advisoryBoost +10`；下限 `50` |
+| `PK` | 巴基斯坦 | 重新考虑 | `advisoryBoost +10`；下限 `50` |
+| `VE` | 委内瑞拉 | 重新考虑 | `advisoryBoost +10`；下限 `50` |
+| `RU` | 俄罗斯 | 谨慎 | `advisoryBoost +5`；无警示下限 |
+| `TR` | 土耳其 | 谨慎 | `advisoryBoost +5`；无警示下限 |
+
+理由：这些默认值覆盖了缺失或延迟的警示种子会使已知高风险战区看起来人为平静的 Tier-1 国家。由于该表是会改变评分的编辑策略，添加、删除或重新定级一个国家是一次公式版本化的方法论变更。
+
+### 文本归属注意事项
+
+国家文本回退在结构化国家代码和坐标失败后使用精选别名。当前以色列别名集包含 `gaza`，因此未归属的头条或打击位置文本提及加沙时会被路由到 IL
+进行 CII 评分。这是 31 国 Tier-1 CII 面的运营限制：CII 当前不发布单独的加沙/巴勒斯坦领土国家评分，读者应将这些以色列归属的文本回退
+信号视为以色列/加沙战区压力，而非声称事件发生在国际承认的以色列领土内。
 
 线上暴露的 `dynamicScore` 是与约 24 小时前的有效 CII 快照相比的带符号评分移动。正值表示国家评分上升，负值表示下降，`0` 表示稳定或无有效先前快照。
 
@@ -78,6 +153,8 @@ composite = baseline * 0.4
 ## 2. 各国 `baselineRisk` 和 `eventMultiplier`
 
 这些是服务端 API 评分和前端客户端 CII 渲染都应用的编辑值。真相源是 [`shared/cii-weights.ts`](https://github.com/koala73/worldmonitor/blob/main/shared/cii-weights.ts)；服务端和前端表从该模块派生，因此系数漂移在测试中失败而非静默发布。
+
+Tier-1 国家集是一个精选的监测范围，而非所有主权国家的自动排名。当一个国家满足至少一项编辑标准时进入该集：持续的全球风险相关性、活跃/近期的武装冲突或严重国内动荡、高影响区域升级潜力、重大经济/安全体系重要性，或仪表盘中的特定运营覆盖需求。该集有意保持小规模，以使 CII 维持为高频分诊面；CRI 覆盖更广的 196 国可排名范围。
 
 | 代码 | 国家 | `baselineRisk` | `eventMultiplier` |
 |------|---------|---------------:|------------------:|
@@ -145,7 +222,7 @@ overallScore = min(100, round(weightedAvg * 0.70 + 15))             # banded to 
 [`server/worldmonitor/intelligence/v1/_risk-config.ts`](https://github.com/koala73/worldmonitor/blob/main/server/worldmonitor/intelligence/v1/_risk-config.ts)。
 它们的**理由**：
 
-- **`STRATEGIC_RISK_POSITIONAL_DECAY = 0.15`** — 受影响最大的国家获得完整权重；权重在第 6 位降为零。选择使得切片大小为 5 自然产生。
+- **`STRATEGIC_RISK_POSITIONAL_DECAY = 0.15`** — 受影响最大的国家获得完整权重；接下来四个位置衰减到 `0.85`、`0.70`、`0.55` 和 `0.40`。第 6 个 1 基位置（0 基索引 5）仍会携带 `0.25`，因此是显式的 top-5 窗口而非零权重截断界定了该汇总。
 - **`STRATEGIC_RISK_TOP_N = 5`** — 足够大以稀释单国激增，又足够小以使评分反映仪表盘的"最顶部"而非长尾。
 - **`STRATEGIC_RISK_SCALE_FLOOR = 15`** — 全球画面永远不会"一切正常"。15 的基线在每个一级国家都平静时保持表盘在视觉上有意义。
 - **`STRATEGIC_RISK_SCALE_FACTOR = 0.70`** — 与下限结合，这把加权 top-5 平均从 `[0, 100]` 压缩到 `[15, 85]`，再经过最终的 `min(100)`。防止单个非常高的国家饱和全球评分。

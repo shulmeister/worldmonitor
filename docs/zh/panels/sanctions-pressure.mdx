@@ -37,9 +37,9 @@ OFAC 以不规律频率（每日到每周）发布列表更新。面板读取最
 
 ## 层级与门控
 
-**免费。** 变体注册中无 `premium` 标志。Sanctions service RPC 是公开的。
+**PRO 门控。** 该面板在其配置的变体中可见，但 sanctions-pressure RPC 需要 PRO 权益。免费或无权益的调用者会收到有文档记录的 `403` 响应，而非空的制裁载荷。
 
 ## API 参考
 
 - [Sanctions service](/api/SanctionsService.openapi.yaml) — 制裁压力 + 实体搜索 RPC。
-- 相关：`GET /api/sanctions/v1/lookup-entity?q=...` — 对 OpenSanctions（实时）的模糊实体查询，OFAC 本地索引作为回退。
+- 相关：`GET /api/sanctions/v1/lookup-sanction-entity?q=...` — 对 OpenSanctions（实时）的模糊实体查询，OFAC 本地索引作为回退。
