@@ -53,8 +53,21 @@ export function _setTestProviders(
   _testProviders = p;
 }
 
-function reportServerError(res: Response, input: RequestInfo | URL): void {
+// Exported for tests (tests/premium-fetch.test.mts) — the `enqueue` parameter
+// exists only so tests can observe captures without loading the Sentry SDK;
+// production call sites never pass it.
+export function reportServerError(
+  res: Response,
+  input: RequestInfo | URL,
+  enqueue: typeof enqueueSentryCall = enqueueSentryCall,
+): void {
   if (res.status < 500) return;
+  // wm-session's dead-session cooldown synthesizes a local 503 (marked with
+  // X-Wm-Session-Degraded) for every suppressed anonymous call — it never
+  // left the browser, so reporting it here floods one `API 503:` issue per
+  // widget endpoint and drowns the genuine origin-5xx canary (#5245).
+  // markWmSessionDead() captures the episode once instead.
+  if (res.headers.get('X-Wm-Session-Degraded') === '1') return;
   try {
     const href = input instanceof Request ? input.url : String(input);
     const path = new URL(href, globalThis.location?.href ?? 'https://worldmonitor.app').pathname;
@@ -68,7 +81,7 @@ function reportServerError(res: Response, input: RequestInfo | URL): void {
     const level: 'warning' | 'error' = isCloudflareEdgeError ? 'warning' : 'error';
     const tags = { kind: isCloudflareEdgeError ? 'api_cf_5xx' : 'api_5xx' };
     const extra = { path, status: res.status };
-    enqueueSentryCall((s) => s.captureMessage(message, { level, tags, extra }));
+    enqueue((s) => s.captureMessage(message, { level, tags, extra }));
   } catch { /* ignore URL parse errors */ }
 }
 

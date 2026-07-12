@@ -14,6 +14,7 @@
 
 import { getCanonicalApiOrigin, toApiUrl } from './runtime';
 import { PREMIUM_RPC_PATHS } from '@/shared/premium-paths';
+import { enqueueSentryCall } from '@/bootstrap/sentry-defer';
 
 const STORAGE_KEY = 'wm-session-exp';
 // Refresh well before expiry so a half-loaded page doesn't fail mid-flight.
@@ -39,6 +40,7 @@ let sessionGeneration = 0;
 let interceptorInstalled = false;
 let nativeSessionFetch: typeof fetch | null = null;
 let sessionDeadUntil = 0;
+let sentryEnqueue: typeof enqueueSentryCall = enqueueSentryCall;
 
 export function isWmSessionDead(): boolean {
   if (sessionDeadUntil <= Date.now()) {
@@ -55,6 +57,13 @@ function markWmSessionDead(): void {
   try { sessionStorage.removeItem(STORAGE_KEY); } catch { /* ignore */ }
   if (alreadyDead) return;
   console.warn('[wm-session] refreshed HttpOnly session cookie was still rejected; suppressing anonymous API calls briefly');
+  // One warning per degraded episode — reportServerError (premium-fetch.ts)
+  // deliberately skips the synthetic X-Wm-Session-Degraded 503s, so this is
+  // the only remote signal that anonymous browsing is degraded (#5245).
+  sentryEnqueue((s) => s.captureMessage(
+    'wm-session dead: anonymous API calls suppressed',
+    { level: 'warning', tags: { kind: 'wm_session_dead' } },
+  ));
   if (typeof window !== 'undefined' && typeof window.dispatchEvent === 'function') {
     window.dispatchEvent(new Event(WM_SESSION_DEGRADED_EVENT));
   }
@@ -168,6 +177,13 @@ export function __resetWmSessionForTests(): void {
   sessionGeneration = 0;
   interceptorInstalled = false;
   sessionDeadUntil = 0;
+  sentryEnqueue = enqueueSentryCall;
+}
+
+// Test-only: observe the once-per-episode dead-session Sentry capture without
+// loading the SDK. Reset back to the real enqueue by __resetWmSessionForTests.
+export function __setWmSessionSentryEnqueueForTests(fn: typeof enqueueSentryCall): void {
+  sentryEnqueue = fn;
 }
 
 // Install a one-shot fetch wrapper that includes HttpOnly session cookies on

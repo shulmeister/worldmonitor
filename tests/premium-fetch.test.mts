@@ -14,7 +14,7 @@
 
 import assert from 'node:assert/strict';
 import { describe, it, before, after, mock } from 'node:test';
-import { premiumFetch, _setTestProviders } from '@/services/premium-fetch';
+import { premiumFetch, reportServerError, _setTestProviders } from '@/services/premium-fetch';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -315,5 +315,48 @@ describe('premiumFetch', () => {
     assert.equal(res.status, 200);
     assert.equal(tokenCalls, 2, 'retried once, then gives up — no infinite loop');
     assert.equal(sentHeaders().get('Authorization'), null);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// reportServerError — the Sentry origin-5xx surface.
+// ---------------------------------------------------------------------------
+describe('reportServerError', () => {
+  function makeSpy() {
+    const calls: Array<{ msg: string; ctx: { level: string; tags: Record<string, string> } }> = [];
+    const enqueue = ((fn: (s: unknown) => void) => {
+      fn({ captureMessage: (msg: string, ctx: { level: string; tags: Record<string, string> }) => { calls.push({ msg, ctx }); } });
+    }) as unknown as typeof import('@/bootstrap/sentry-defer').enqueueSentryCall;
+    return { calls, enqueue };
+  }
+
+  it('captures a genuine origin 503 at error level with kind api_5xx', () => {
+    const { calls, enqueue } = makeSpy();
+    reportServerError(new Response('oops', { status: 503 }), PUBLIC_TARGET, enqueue);
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0].msg, 'API 503: /api/economic/v1/get-fred-series-batch');
+    assert.equal(calls[0].ctx.level, 'error');
+    assert.equal(calls[0].ctx.tags.kind, 'api_5xx');
+  });
+
+  it('keeps Cloudflare edge 52x at warning with kind api_cf_5xx', () => {
+    const { calls, enqueue } = makeSpy();
+    reportServerError(new Response('cf', { status: 521 }), PUBLIC_TARGET, enqueue);
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0].ctx.level, 'warning');
+    assert.equal(calls[0].ctx.tags.kind, 'api_cf_5xx');
+  });
+
+  it('skips the client-synthesized session-degraded 503 (X-Wm-Session-Degraded)', () => {
+    // wm-session's dead-session cooldown fabricates this Response locally —
+    // it never left the browser, so it must NOT be reported as an origin 5xx
+    // (#5245: 17 per-endpoint `API 503:` issues flooded after #5219 shipped).
+    const { calls, enqueue } = makeSpy();
+    const res = new Response(JSON.stringify({ error: 'Anonymous session temporarily unavailable' }), {
+      status: 503,
+      headers: { 'Content-Type': 'application/json', 'X-Wm-Session-Degraded': '1' },
+    });
+    reportServerError(res, PUBLIC_TARGET, enqueue);
+    assert.equal(calls.length, 0, 'synthetic degraded 503 must not be reported as an origin 5xx');
   });
 });
