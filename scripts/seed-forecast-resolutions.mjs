@@ -1084,6 +1084,15 @@ export function shapeResolutionFeed(key, data) {
     }
     return records;
   }
+  if (key === 'market:commodities-bootstrap:v1') {
+    // Enveloped as {_seed, data:{quotes:[...]}}. The eval's iterateRecords only
+    // descends into ARRAY children, so the doubly-nested quotes array is
+    // invisible as-is — expose it directly so `price(symbol==<SYM>)` resolves.
+    // (Also unblocks the pre-existing market commodity-price forecast path.)
+    const d = data?.data ?? data;
+    if (Array.isArray(d?.quotes)) return d.quotes;
+    return d;
+  }
   return data;
 }
 
