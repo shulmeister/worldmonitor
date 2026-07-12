@@ -14,7 +14,10 @@
  */
 
 import type { AuthKind } from './usage-identity';
-import { getClientIp, hasCloudflareTransitProof, UNKNOWN_CLIENT_IP } from './rate-limit';
+// client-ip (NOT rate-limit): this module is in the Railway seeders' static
+// import closure via redis.ts, and rate-limit.ts pulls @upstash/* packages
+// that seeder containers do not install (#5231).
+import { getClientIp, hasCloudflareTransitProof, UNKNOWN_CLIENT_IP } from './client-ip';
 
 const AXIOM_DATASET = 'wm_api_usage';
 // US region endpoint. EU workspaces would use api.eu.axiom.co.
