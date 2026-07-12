@@ -4,6 +4,7 @@ import { describe, it } from 'node:test';
 
 const layout = readFileSync(new URL('../src/app/panel-layout.ts', import.meta.url), 'utf8');
 const handlers = readFileSync(new URL('../src/app/event-handlers.ts', import.meta.url), 'utf8');
+const mobileNav = readFileSync(new URL('../src/app/mobile-primary-nav.ts', import.meta.url), 'utf8');
 const css = readFileSync(new URL('../src/styles/main.css', import.meta.url), 'utf8');
 const shell = readFileSync(new URL('../index.html', import.meta.url), 'utf8');
 const search = readFileSync(new URL('../src/components/SearchModal.ts', import.meta.url), 'utf8');
@@ -29,12 +30,12 @@ describe('mobile P0 navigation contract (#5201)', () => {
   });
 
   it('wires Today, Map, Search, Alerts, and More as distinct actions', () => {
-    assert.match(handlers, /private setupMobileTabBar\(\): void/);
-    assert.match(handlers, /case 'today':/);
-    assert.match(handlers, /case 'map':/);
-    assert.match(handlers, /case 'search':/);
-    assert.match(handlers, /case 'alerts':/);
-    assert.match(handlers, /case 'more':/);
+    assert.match(mobileNav, /private setupTabBar\(\): void/);
+    assert.match(mobileNav, /case 'today':/);
+    assert.match(mobileNav, /case 'map':/);
+    assert.match(mobileNav, /case 'search':/);
+    assert.match(mobileNav, /case 'alerts':/);
+    assert.match(mobileNav, /case 'more':/);
   });
 
   it('defaults first-time mobile visitors to the collapsed-map Today state before hydration', () => {
@@ -44,12 +45,12 @@ describe('mobile P0 navigation contract (#5201)', () => {
 
   it('provides an account mount inside More instead of hiding auth on mobile', () => {
     assert.match(layout, /id="mobileAuthWidgetMount"/);
-    assert.match(handlers, /mobileAuthWidgetMount/);
+    assert.match(mobileNav, /mobileAuthWidgetMount/);
   });
 
   it('routes every P0 overlay family through the shared browser-history manager', () => {
-    assert.match(handlers, /overlayHistory\.open\('menu'/);
-    assert.match(handlers, /overlayHistory\.replace\('menu', 'region'/);
+    assert.match(mobileNav, /overlayHistory\.open\('menu'/);
+    assert.match(mobileNav, /overlayHistory\.replace\('menu', 'region'/);
     assert.match(search, /overlayHistory\.open\('search'/);
     assert.match(popup, /overlayHistory\.open\('map-popup'/);
     assert.match(settings, /overlayHistory\.open\('settings'/);

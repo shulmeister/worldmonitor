@@ -148,7 +148,7 @@ async function loadCountryDeepDivePanel(options = {}) {
     `],
     ['utils-stub', `
       export function getCSSColor() { return '#44ff88'; }
-      export function isMobileDevice() { return false; }
+      export function isMobileDevice() { return ${options.mobile === true ? 'true' : 'false'}; }
       export function showToast(msg) { globalThis.__wmCountryDeepDiveTestState.toasts.push(msg); }
       export function createCircuitBreaker() { return { execute: (fn) => fn() }; }
       export function loadFromStorage() { return null; }
@@ -210,6 +210,17 @@ async function loadCountryDeepDivePanel(options = {}) {
         });
       }
     `],
+    ['overlay-history-stub', `
+      const state = globalThis.__wmCountryDeepDiveTestState;
+      export const overlayHistory = {
+        open(id, closeFromHistory) {
+          state.historyEntry = { id, closeFromHistory };
+        },
+        close(id) {
+          if (state.historyEntry?.id === id) state.historyEntry = null;
+        }
+      };
+    `],
   ]);
 
   const aliasMap = new Map([
@@ -236,6 +247,7 @@ async function loadCountryDeepDivePanel(options = {}) {
     ['@/services/panel-gating', 'panel-gating-stub'],
     ['@/services/auth-state', 'auth-state-stub'],
     ['@/bootstrap/sentry-defer', 'sentry-defer-stub'],
+    ['@/utils/overlay-history', 'overlay-history-stub'],
   ]);
 
   const plugin = {
@@ -295,6 +307,8 @@ export async function createCountryDeepDivePanelHarness(options = {}) {
     evidenceExports: [],
     gateHits: [],
     toasts: [],
+    historyEntry: null,
+    forwardHistoryEntry: null,
   };
 
   defineGlobal('document', browserEnvironment.document);
@@ -366,6 +380,21 @@ export async function createCountryDeepDivePanelHarness(options = {}) {
     },
     getToasts() {
       return state.toasts;
+    },
+    historyBack() {
+      const entry = state.historyEntry;
+      state.historyEntry = null;
+      state.forwardHistoryEntry = entry;
+      entry?.closeFromHistory();
+      return entry?.id ?? null;
+    },
+    historyForward() {
+      const entry = state.forwardHistoryEntry;
+      state.forwardHistoryEntry = null;
+      return entry?.id ?? null;
+    },
+    getHistoryEntry() {
+      return state.historyEntry?.id ?? null;
     },
     cleanup,
   };

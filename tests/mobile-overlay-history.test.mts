@@ -123,4 +123,20 @@ describe('OverlayHistoryManager', () => {
     assert.equal((environment.state as Record<string, unknown>).__wmOverlay, undefined);
     manager.destroy();
   });
+
+  it('drains a fixed snapshot when a close callback opens another overlay', () => {
+    const { environment } = createEnvironment();
+    const manager = new OverlayHistoryManager(environment);
+    const closed: string[] = [];
+
+    manager.open('settings', () => {
+      closed.push('settings');
+      manager.open('confirm', () => closed.push('confirm'));
+    });
+    environment.back();
+
+    assert.deepEqual(closed, ['settings']);
+    assert.equal(manager.top(), 'confirm');
+    manager.destroy();
+  });
 });

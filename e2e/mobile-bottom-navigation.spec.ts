@@ -39,12 +39,14 @@ test.describe('mobile primary navigation (#5201 P0)', () => {
     await expect(page.locator('.search-overlay.search-mobile')).toHaveClass(/open/);
     await page.evaluate(() => history.back());
     await expect(page.locator('.search-overlay.search-mobile')).toHaveCount(0, { timeout: 2_000 });
+    await expect(page.locator('[data-mobile-tab="today"]')).toHaveAttribute('aria-current', 'page');
 
     await page.locator('[data-mobile-tab="more"]').click();
     await expect(page.locator('#mobileMenu')).toHaveClass(/open/);
     await expect(page.locator('#mobileAuthFallback, #mobileAuthWidgetMount .auth-signin-btn').first()).toBeVisible();
     await page.evaluate(() => history.back());
     await expect(page.locator('#mobileMenu')).not.toHaveClass(/open/);
+    await expect(page.locator('[data-mobile-tab="today"]')).toHaveAttribute('aria-current', 'page');
 
     await page.locator('[data-mobile-tab="alerts"]').click();
     await expect(page.locator('[data-mobile-tab="alerts"]')).toHaveAttribute('aria-current', 'page');
@@ -77,6 +79,41 @@ test.describe('mobile primary navigation (#5201 P0)', () => {
     await expect(page.locator('#mobileMenu')).not.toHaveClass(/open/);
   });
 
+  test('Back cancels a pending lazy Search transition', async ({ page }) => {
+    let releaseSearch!: () => void;
+    const searchReleased = new Promise<void>((resolve) => { releaseSearch = resolve; });
+    await page.route('**/src/app/search-manager.ts*', async (route) => {
+      await searchReleased;
+      await route.continue();
+    });
+
+    await page.locator('[data-mobile-tab="search"]').click();
+    await expect.poll(async () => page.evaluate(() => history.state?.__wmOverlay?.id ?? null)).toBe('search-pending');
+    await page.evaluate(() => history.back());
+    releaseSearch();
+
+    await expect(page.locator('.search-overlay.search-mobile')).toHaveCount(0);
+    await expect(page.locator('[data-mobile-tab="today"]')).toHaveAttribute('aria-current', 'page');
+  });
+
+  test('Back cancels a pending lazy Settings transition', async ({ page }) => {
+    let releaseSettings!: () => void;
+    const settingsReleased = new Promise<void>((resolve) => { releaseSettings = resolve; });
+    await page.route('**/src/components/UnifiedSettings.ts*', async (route) => {
+      await settingsReleased;
+      await route.continue();
+    });
+
+    await page.locator('[data-mobile-tab="more"]').click();
+    await page.locator('#mobileMenuSettings').click();
+    await expect.poll(async () => page.evaluate(() => history.state?.__wmOverlay?.id ?? null)).toBe('settings-pending');
+    await page.evaluate(() => history.back());
+    releaseSettings();
+
+    await expect(page.locator('#unifiedSettingsModal')).toHaveCount(0);
+    await expect(page.locator('[data-mobile-tab="today"]')).toHaveAttribute('aria-current', 'page');
+  });
+
   test('closes Settings with browser Back after opening it from More', async ({ page }) => {
     const baselineHistoryLength = await page.evaluate(() => history.length);
     await page.locator('[data-mobile-tab="more"]').click();
@@ -88,6 +125,25 @@ test.describe('mobile primary navigation (#5201 P0)', () => {
 
     await page.evaluate(() => history.back());
     await expect(settings).not.toHaveClass(/active/);
+  });
+
+  test('Back with unsaved Settings changes opens one responsive confirm', async ({ page }) => {
+    await page.locator('[data-mobile-tab="more"]').click();
+    await page.locator('#mobileMenuSettings').click();
+    const settings = page.locator('#unifiedSettingsModal');
+    await expect(settings).toHaveClass(/active/);
+
+    await page.locator('#us-tab-panels').click();
+    await page.locator('.panel-toggle-item:not(.pro-locked)').first().click();
+    await page.evaluate(() => history.back());
+
+    const confirm = page.locator('.confirm-dialog-overlay');
+    await expect(confirm).toHaveCount(1);
+    await expect(confirm).toHaveClass(/active/);
+    await page.keyboard.press('Escape');
+    await expect(confirm).toHaveCount(0);
+    await expect(settings).toHaveClass(/active/);
+    await expect.poll(async () => page.evaluate(() => history.state?.__wmOverlay?.id ?? null)).toBe('settings');
   });
 
   test('reveals an enabled alert panel and reports when none are enabled', async ({ page }) => {

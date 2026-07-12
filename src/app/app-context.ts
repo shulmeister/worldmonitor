@@ -25,7 +25,7 @@ import type { UnifiedSettingsTabId } from '@/components/settings-types';
 export type { UnifiedSettingsTabId };
 
 export interface UnifiedSettingsController {
-  open(tab?: UnifiedSettingsTabId, replaceOverlayId?: string): void;
+  open(tab?: UnifiedSettingsTabId, replaceOverlayId?: string, historyPending?: boolean): void;
   refreshPanelToggles(): void;
   getButton(): HTMLButtonElement;
   destroy(): void;

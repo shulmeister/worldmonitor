@@ -398,7 +398,7 @@ export class UnifiedSettings {
     // non-blocking in-app dialog (#4559): close() stays synchronous (8 callers)
     // and defers teardown to the user's choice instead of a blocking confirm().
     if (this.hasPendingPanelChanges()) {
-      if (fromHistory && !this.historyRegistered) {
+      if (fromHistory && !this.historyRegistered && !this.confirmingClose) {
         this.historyRegistered = true;
         overlayHistory.open('settings', () => this.close(true));
       }

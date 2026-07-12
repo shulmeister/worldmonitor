@@ -45,6 +45,7 @@ function withoutMarker(state: unknown): Record<string, unknown> {
  */
 export class OverlayHistoryManager {
   private entries: OverlayEntry[] = [];
+  private readonly listeners = new Set<(top: string | null) => void>();
   private nextToken = 0;
   private readonly handlePopState = (event: PopStateEvent): void => {
     const destination = markerFromState(event.state);
@@ -58,10 +59,9 @@ export class OverlayHistoryManager {
       return;
     }
 
-    while (this.entries.length - 1 > destinationIndex) {
-      const entry = this.entries.pop();
-      entry?.closeFromHistory();
-    }
+    const closing = this.entries.splice(destinationIndex + 1).reverse();
+    for (const entry of closing) entry.closeFromHistory();
+    this.notify();
   };
 
   constructor(private readonly environment: OverlayHistoryEnvironment) {
@@ -82,6 +82,7 @@ export class OverlayHistoryManager {
     };
     this.entries.push(entry);
     this.environment.pushState(withMarker(this.environment.state, { id: entry.id, token: entry.token }));
+    this.notify();
   }
 
   public replace(fromId: string, id: string, closeFromHistory: () => void): void {
@@ -97,6 +98,7 @@ export class OverlayHistoryManager {
     };
     this.entries[this.entries.length - 1] = entry;
     this.environment.replaceState(withMarker(this.environment.state, { id: entry.id, token: entry.token }));
+    this.notify();
   }
 
   public close(id: string): void {
@@ -108,10 +110,16 @@ export class OverlayHistoryManager {
     if (index === this.entries.length && current?.token === entry.token) {
       this.environment.back();
     }
+    this.notify();
   }
 
   public top(): string | null {
     return this.entries[this.entries.length - 1]?.id ?? null;
+  }
+
+  public subscribe(listener: (top: string | null) => void): () => void {
+    this.listeners.add(listener);
+    return () => this.listeners.delete(listener);
   }
 
   public reset(): void {
@@ -119,11 +127,18 @@ export class OverlayHistoryManager {
     if (markerFromState(this.environment.state)) {
       this.environment.replaceState(withoutMarker(this.environment.state));
     }
+    this.notify();
   }
 
   public destroy(): void {
     this.reset();
     this.environment.removePopStateListener(this.handlePopState);
+    this.listeners.clear();
+  }
+
+  private notify(): void {
+    const top = this.top();
+    this.listeners.forEach((listener) => listener(top));
   }
 }
 
