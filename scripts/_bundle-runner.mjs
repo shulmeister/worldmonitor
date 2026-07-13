@@ -204,10 +204,29 @@ function spawnSeed(scriptPath, { timeoutMs, label, bundleStartedAtMs }) {
  *   intervalMs: number,
  *   timeoutMs?: number,
  *   dependsOn?: string[],    // labels that MUST run earlier in the array
+ *   requiredEnv?: string[],  // deployment config required before any section runs
  * }>} sections
  * @param {{ maxBundleMs?: number }} [opts]
  */
 export async function runBundle(label, sections, opts = {}) {
+  const missingEnvBySection = new Map();
+  for (const section of sections) {
+    if (section.requiredEnv == null) continue;
+    if (!Array.isArray(section.requiredEnv)) {
+      throw new Error(`[Bundle:${label}] section '${section.label}' requiredEnv must be an array`);
+    }
+    const missing = [];
+    for (const name of section.requiredEnv) {
+      if (!/^[A-Z][A-Z0-9_]*$/.test(name)) {
+        throw new Error(`[Bundle:${label}] section '${section.label}' has invalid requiredEnv name '${name}'`);
+      }
+      if (!String(process.env[name] ?? '').trim()) {
+        missing.push(name);
+      }
+    }
+    if (missing.length > 0) missingEnvBySection.set(section.label, missing);
+  }
+
   // Topological-order assertion. A consumer seeder reading a peer's
   // Redis output in-bundle depends on the peer running first; if a
   // future edit (e.g. alphabetizing sections) reorders them, the
@@ -238,6 +257,15 @@ export async function runBundle(label, sections, opts = {}) {
   let ran = 0, skipped = 0, deferred = 0, failed = 0, gracefulFailed = 0;
 
   for (const section of sections) {
+    const missingEnv = missingEnvBySection.get(section.label);
+    if (missingEnv) {
+      const reason = `missing required environment configuration: ${missingEnv.join(', ')}`;
+      console.error(`  [${section.label}] Failed configuration: ${reason}`);
+      console.error(`[Bundle:${label}] section=${section.label} status=CONFIG_ERROR reason=${reason}`);
+      failed++;
+      continue;
+    }
+
     const scriptPath = join(__dirname, section.script);
     const timeout = section.timeoutMs || 300_000;
 

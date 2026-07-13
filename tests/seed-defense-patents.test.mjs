@@ -134,6 +134,41 @@ describe('USPTO ODP defense-patent source', () => {
     assert.match(result.fetchedAt, /^\d{4}-\d{2}-\d{2}T/);
   });
 
+  it('deduplicates identifier variants by application and keeps the preferred publication ID', async () => {
+    const applicationOnly = mapPatentApplication(odpRecord({
+      applicationNumberText: '19/999,999',
+      publicationNumber: null,
+    }), H04B);
+    const published = mapPatentApplication(odpRecord({
+      applicationNumberText: '19999999',
+      publicationNumber: '20269999999A1',
+    }), { code: 'F42B', desc: 'Ammunition / Explosives' });
+
+    const result = await fetchAllPatents({
+      apiKey: 'test-key',
+      categories: [H04B, { code: 'F42B', desc: 'Ammunition / Explosives' }],
+      delayMs: 0,
+      fetchCategory: async (category) => category.code === 'H04B'
+        ? [applicationOnly]
+        : [published],
+      logger: { log() {}, warn() {} },
+    });
+
+    assert.equal(result.total, 1);
+    assert.equal(result.patents[0].patentId, 'US20269999999A1');
+    assert.equal(result.patents[0].url, 'https://patents.google.com/patent/US20269999999A1');
+    assert.deepEqual(Object.keys(result.patents[0]), [
+      'patentId',
+      'title',
+      'date',
+      'assignee',
+      'cpcCode',
+      'cpcDesc',
+      'abstract',
+      'url',
+    ]);
+  });
+
   it('returns an invalid empty payload when every category fails', async () => {
     const result = await fetchAllPatents({
       apiKey: 'test-key',
@@ -159,6 +194,11 @@ describe('defense-patents deployment wiring', () => {
     assert.match(source, /seedMetaKey:\s*'military:defense-patents'/);
     assert.match(source, /canonicalKey:\s*'patents:defense:latest'/);
     assert.match(source, /intervalMs:\s*WEEK/);
+    assert.match(source, /requiredEnv:\s*\['USPTO_API_KEY'\]/);
+
+    const registry = JSON.parse(readFileSync(join(here, '..', 'scripts', 'railway-services.json'), 'utf8'));
+    const service = registry.find((entry) => entry.service === 'seed-bundle-static-ref');
+    assert.deepEqual(service?.requiredEnv, ['USPTO_API_KEY']);
   });
 
   it('keeps the empty abstract compatibility contract explicit in generated API docs', () => {

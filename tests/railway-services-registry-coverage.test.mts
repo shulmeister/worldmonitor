@@ -34,6 +34,7 @@ interface RailwayServiceEntry {
   deployMode: 'nixpacks-root-scripts' | 'nixpacks-root-repo' | 'dockerfile';
   dockerfile?: string;
   service: string;
+  requiredEnv?: string[];
   documentedAt: string;
 }
 
@@ -66,6 +67,22 @@ const RUNBOOK_SERVICE_ROW_RE = /^\|\s*seed-[a-z0-9-]+\s*\|\s*`node\s+(scripts\/[
 const SCRIPT_HEADER_SERVICE_RE = /^\s*\/\/\s*-\s*Service name:\s*([a-z0-9-]+)\s*$/m;
 
 describe('Railway service registry coverage', () => {
+  it('required environment declarations use canonical unique variable names', () => {
+    for (const entry of registry) {
+      if (entry.requiredEnv == null) continue;
+      assert.ok(Array.isArray(entry.requiredEnv), `${entry.service}.requiredEnv must be an array`);
+      assert.ok(entry.requiredEnv.length > 0, `${entry.service}.requiredEnv must not be empty`);
+      assert.equal(
+        new Set(entry.requiredEnv).size,
+        entry.requiredEnv.length,
+        `${entry.service}.requiredEnv must not contain duplicates`,
+      );
+      for (const name of entry.requiredEnv) {
+        assert.match(name, /^[A-Z][A-Z0-9_]*$/, `${entry.service} has invalid requiredEnv name`);
+      }
+    }
+  });
+
   it('every Dockerfile.* CMD has a matching registry entry', () => {
     const dockerfiles = readdirSync(repoRoot)
       .filter((f) => f.startsWith('Dockerfile.'))

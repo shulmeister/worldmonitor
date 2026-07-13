@@ -223,6 +223,14 @@ All new services share these settings:
 | **Members** | Submarine Cables (weekly), Defense Patents (weekly), Chokepoint Baselines (400d, runs rarely), Military Bases (30d, runs rarely) |
 | **Required variable** | `USPTO_API_KEY=${{shared.USPTO_API_KEY}}` |
 
+Defense Patents is an intentional data-series migration, not a continuation of
+the former grant/issue series. USPTO ODP Patent File Wrapper records represent
+applications, so `date` is the application filing date and `abstract` remains
+empty for wire compatibility. The producer marks the discontinuity with
+`sourceVersion: uspto-odp-v1` and `schemaVersion: 2`; operational comparisons
+must not treat pre-migration grant dates and post-migration filing dates as one
+continuous metric.
+
 ### Bundle 4: seed-bundle-resilience
 
 | Setting | Value |

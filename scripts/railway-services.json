@@ -139,6 +139,7 @@
     "entry": "scripts/seed-bundle-static-ref.mjs",
     "deployMode": "nixpacks-root-scripts",
     "service": "seed-bundle-static-ref",
+    "requiredEnv": ["USPTO_API_KEY"],
     "documentedAt": "docs/railway-seed-consolidation-runbook.md#bundle-3-seed-bundle-static-ref"
   },
   {

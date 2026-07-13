@@ -3,6 +3,12 @@ import { CHROME_UA, sleep } from './_seed-utils.mjs';
 export const USPTO_ODP_API = 'https://api.uspto.gov/api/v1/patent/applications/search';
 export const MAX_PER_CATEGORY = 20;
 
+// Internal-only identity metadata. Symbols keep the canonical application key
+// out of the published patent contract while allowing cross-category results
+// to deduplicate even when one response has a publication ID and another only
+// has the underlying application number.
+const PATENT_IDENTITY = Symbol('patentIdentity');
+
 // Key defense/dual-use assignees. Multi-word names use phrase matching so a
 // broad prefix such as "General*" cannot pull unrelated applicants.
 export const DEFENSE_ASSIGNEE_QUERIES = [
@@ -51,10 +57,18 @@ function normalizedPatentId(id) {
   return /^US/i.test(value) ? value.toUpperCase() : `US${value}`;
 }
 
+function normalizedApplicationId(id) {
+  return String(id ?? '').replace(/[^a-z0-9]/gi, '').toUpperCase();
+}
+
+function normalizedDocumentId(id) {
+  return String(id ?? '').replace(/\s+/g, '').toUpperCase();
+}
+
 export function mapPatentApplication(record, category) {
   const metadata = record?.applicationMetaData ?? {};
   const applicationNumber = String(record?.applicationNumberText ?? metadata.applicationNumberText ?? '').trim();
-  const publicationNumber = String(metadata.earliestPublicationNumber ?? '').trim();
+  const publicationNumber = normalizedPatentId(metadata.earliestPublicationNumber);
   const grantNumber = normalizedPatentId(metadata.patentNumber);
   const patentId = publicationNumber || grantNumber || applicationNumber;
   const date = String(metadata.filingDate ?? metadata.earliestPublicationDate ?? metadata.grantDate ?? '').trim();
@@ -70,7 +84,7 @@ export function mapPatentApplication(record, category) {
     ? `https://patents.google.com/patent/${encodeURIComponent(googlePatentId)}`
     : `https://data.uspto.gov/patent-file-wrapper/search/details/${encodeURIComponent(applicationNumber)}/application-data`;
 
-  return {
+  const patent = {
     patentId,
     title: String(metadata.inventionTitle ?? '').slice(0, 300),
     date,
@@ -82,6 +96,18 @@ export function mapPatentApplication(record, category) {
     abstract: '',
     url,
   };
+
+  const applicationId = normalizedApplicationId(applicationNumber);
+  Object.defineProperty(patent, PATENT_IDENTITY, {
+    value: {
+      key: applicationId ? `APPLICATION:${applicationId}` : `DOCUMENT:${normalizedDocumentId(patentId)}`,
+      // Prefer the richest stable display/link representation when otherwise
+      // identical application records arrive with different identifier shapes.
+      rank: publicationNumber ? 2 : grantNumber ? 1 : 0,
+    },
+  });
+
+  return patent;
 }
 
 function requireApiKey(apiKey) {
@@ -147,13 +173,19 @@ export async function fetchAllPatents({
     }
   }
 
-  const seen = new Set();
-  const patents = all
-    .filter((patent) => {
-      if (seen.has(patent.patentId)) return false;
-      seen.add(patent.patentId);
-      return true;
-    })
+  const byIdentity = new Map();
+  for (const patent of all) {
+    const identity = patent[PATENT_IDENTITY] ?? {
+      key: `DOCUMENT:${normalizedDocumentId(patent.patentId)}`,
+      rank: 0,
+    };
+    const existing = byIdentity.get(identity.key);
+    if (!existing || identity.rank > existing.identity.rank) {
+      byIdentity.set(identity.key, { patent, identity });
+    }
+  }
+  const patents = [...byIdentity.values()]
+    .map(({ patent }) => patent)
     .sort((a, b) => b.date.localeCompare(a.date));
 
   return { patents, total: patents.length, fetchedAt: new Date().toISOString() };

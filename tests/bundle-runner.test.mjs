@@ -152,6 +152,38 @@ test('non-zero exit without timeout reports exit code', async () => {
   }
 });
 
+test('missing required environment configuration hard-fails only the affected section', async () => {
+  const cleanup = writeFixture('_bundle-fixture-config-sibling.mjs', `console.log('sibling-ran');\n`);
+  try {
+    const { code, stdout, stderr } = await runBundleWith([
+      {
+        label: 'OK_SIBLING',
+        script: '_bundle-fixture-config-sibling.mjs',
+        intervalMs: 1,
+        timeoutMs: 5000,
+      },
+      {
+        label: 'REQUIRES_SECRET',
+        script: '_bundle-fixture-must-not-run.mjs',
+        intervalMs: 1,
+        timeoutMs: 5000,
+        requiredEnv: ['WM_BUNDLE_TEST_REQUIRED_SECRET'],
+      },
+    ]);
+
+    assert.equal(code, 1, 'deployment misconfiguration must fail the bundle');
+    assert.match(stdout, /\[OK_SIBLING\] sibling-ran/);
+    assert.match(stdout, /\[Bundle:test\] Finished .* ran:1 .* failed:1/);
+    assert.doesNotMatch(stdout + stderr, /spawn error|must-not-run/);
+    assert.match(
+      stderr,
+      /section=REQUIRES_SECRET status=CONFIG_ERROR reason=missing required environment configuration: WM_BUNDLE_TEST_REQUIRED_SECRET/,
+    );
+  } finally {
+    cleanup();
+  }
+});
+
 test('graceful-only fetch failure exits 0 (no data lost) but still logs the skip', async () => {
   const cleanup = writeFixture(
     '_bundle-fixture-graceful-fail.mjs',
