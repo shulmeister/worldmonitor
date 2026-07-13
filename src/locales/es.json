@@ -2229,7 +2229,7 @@
     },
     "defensePatents": {
       "title": "Señal I+D",
-      "infoTooltip": "Solicitudes semanales de patentes de defensa y uso dual por Raytheon, Lockheed, Huawei, DARPA y otras organizaciones estratégicas. Categorías: H04B (comunicaciones), H01L (semiconductores), F42B (municiones), G06N (IA), C12N (biotecnología). Fuente: USPTO PatentsView.",
+      "infoTooltip": "Solicitudes semanales de patentes de defensa y uso dual por Raytheon, Lockheed, Huawei, DARPA y otras organizaciones estratégicas. Categorías: H04B (comunicaciones), H01L (semiconductores), F42B (municiones), G06N (IA), C12N (biotecnología). Fuente: USPTO Open Data Portal.",
       "loading": "Cargando solicitudes I+D…",
       "error": "No se pudieron cargar los datos de patentes.",
       "empty": "Sin solicitudes en esta categoría.",

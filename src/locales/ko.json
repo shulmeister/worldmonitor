@@ -2219,7 +2219,7 @@
     },
     "defensePatents": {
       "title": "R&D 신호",
-      "infoTooltip": "Raytheon, Lockheed, Huawei, DARPA 및 기타 전략 기관의 주간 방위 및 이중용도 특허 출원. 카테고리: H04B (통신), H01L (반도체), F42B (탄약), G06N (AI), C12N (생명공학). 출처: USPTO PatentsView.",
+      "infoTooltip": "Raytheon, Lockheed, Huawei, DARPA 및 기타 전략 기관의 주간 방위 및 이중용도 특허 출원. 카테고리: H04B (통신), H01L (반도체), F42B (탄약), G06N (AI), C12N (생명공학). 출처: USPTO Open Data Portal.",
       "loading": "R&D 출원을 로드 중입니다…",
       "error": "특허 데이터를 로드할 수 없습니다.",
       "empty": "이 카테고리에는 출원이 없습니다.",

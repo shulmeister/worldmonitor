@@ -2219,7 +2219,7 @@
     },
     "defensePatents": {
       "title": "F&E-Signal",
-      "infoTooltip": "Wöchentliche Anmeldungen von Verteidigungs- und Doppelverwendungspatenten von Raytheon, Lockheed, Huawei, DARPA und anderen strategischen Organisationen. Kategorien: H04B (Kommunikation), H01L (Halbleiter), F42B (Munition), G06N (KI), C12N (Biotechnologie). Quelle: USPTO PatentsView.",
+      "infoTooltip": "Wöchentliche Anmeldungen von Verteidigungs- und Doppelverwendungspatenten von Raytheon, Lockheed, Huawei, DARPA und anderen strategischen Organisationen. Kategorien: H04B (Kommunikation), H01L (Halbleiter), F42B (Munition), G06N (KI), C12N (Biotechnologie). Quelle: USPTO Open Data Portal.",
       "loading": "F&E-Anmeldungen werden geladen…",
       "error": "Fehler beim Laden der Patentdaten.",
       "empty": "Keine Anmeldungen in dieser Kategorie.",

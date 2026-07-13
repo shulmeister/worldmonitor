@@ -2291,7 +2291,7 @@
     },
     "defensePatents": {
       "title": "R&D Signal",
-      "infoTooltip": "Weekly defense and dual-use patent filings by Raytheon, Lockheed, Huawei, DARPA, and other strategic organizations. Categories: H04B (comms), H01L (semiconductors), F42B (ammunition), G06N (AI), C12N (biotech). Source: USPTO PatentsView.",
+      "infoTooltip": "Weekly defense and dual-use patent filings by Raytheon, Lockheed, Huawei, DARPA, and other strategic organizations. Categories: H04B (comms), H01L (semiconductors), F42B (ammunition), G06N (AI), C12N (biotech). Source: USPTO Open Data Portal.",
       "loading": "Loading R&D filings…",
       "error": "Failed to load patent data.",
       "empty": "No filings in this category.",

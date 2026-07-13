@@ -2466,7 +2466,7 @@
     },
     "defensePatents": {
       "title": "R&D signal",
-      "infoTooltip": "Tjedna podnošenja obrana i patenta dvojne namjene od strane Raytheona, Lockheed-a, Huawei-a, DARPE-a i drugih strateških organizacija. Kategorije: H04B (komunikacije), H01L (poluvodiči), F42B (municija), G06N (AI), C12N (biotehnologija). Izvor: USPTO PatentsView.",
+      "infoTooltip": "Tjedna podnošenja obrana i patenta dvojne namjene od strane Raytheona, Lockheed-a, Huawei-a, DARPE-a i drugih strateških organizacija. Kategorije: H04B (komunikacije), H01L (poluvodiči), F42B (municija), G06N (AI), C12N (biotehnologija). Izvor: USPTO Open Data Portal.",
       "loading": "Učitavanje R&D podnošenja…",
       "error": "Neuspjelo učitavanje podataka o patentima.",
       "empty": "Nema podnošenja u ovoj kategoriji.",

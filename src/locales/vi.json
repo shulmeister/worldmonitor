@@ -2219,7 +2219,7 @@
     },
     "defensePatents": {
       "title": "Tín hiệu R&D",
-      "infoTooltip": "Đơn đăng ký sáng chế quốc phòng và hai chiều hàng tuần từ Raytheon, Lockheed, Huawei, DARPA và các tổ chức chiến lược khác. Danh mục: H04B (thông tin liên lạc), H01L (bán dẫn), F42B (đạn dược), G06N (AI), C12N (công nghệ sinh học). Nguồn: USPTO PatentsView.",
+      "infoTooltip": "Đơn đăng ký sáng chế quốc phòng và hai chiều hàng tuần từ Raytheon, Lockheed, Huawei, DARPA và các tổ chức chiến lược khác. Danh mục: H04B (thông tin liên lạc), H01L (bán dẫn), F42B (đạn dược), G06N (AI), C12N (công nghệ sinh học). Nguồn: USPTO Open Data Portal.",
       "loading": "Đang tải đơn đăng ký R&D…",
       "error": "Không thể tải dữ liệu sáng chế.",
       "empty": "Không có đơn đăng ký trong danh mục này.",

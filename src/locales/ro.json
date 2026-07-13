@@ -2229,7 +2229,7 @@
     },
     "defensePatents": {
       "title": "Semnal R&D",
-      "infoTooltip": "Depuneri săptămânale de brevete în apărare și uz dual de la Raytheon, Lockheed, Huawei, DARPA și alte organizații strategice. Categorii: H04B (comunicații), H01L (semiconductori), F42B (muniție), G06N (AI), C12N (biotehnologie). Sursă: USPTO PatentsView.",
+      "infoTooltip": "Depuneri săptămânale de brevete în apărare și uz dual de la Raytheon, Lockheed, Huawei, DARPA și alte organizații strategice. Categorii: H04B (comunicații), H01L (semiconductori), F42B (muniție), G06N (AI), C12N (biotehnologie). Sursă: USPTO Open Data Portal.",
       "loading": "Se încarcă depunerile R&D…",
       "error": "Nu s-au putut încărca datele brevetelor.",
       "empty": "Nicio depunere în această categorie.",

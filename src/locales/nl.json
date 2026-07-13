@@ -2006,7 +2006,7 @@
     },
     "defensePatents": {
       "title": "O&O-signaal",
-      "infoTooltip": "Wekelijkse verdedigings- en dual-use patentaanvragen van Raytheon, Lockheed, Huawei, DARPA en andere strategische organisaties. Categorieën: H04B (comms), H01L (halfgeleiders), F42B (munitie), G06N (AI), C12N (biotech). Bron: USPTO PatentsView.",
+      "infoTooltip": "Wekelijkse verdedigings- en dual-use patentaanvragen van Raytheon, Lockheed, Huawei, DARPA en andere strategische organisaties. Categorieën: H04B (comms), H01L (halfgeleiders), F42B (munitie), G06N (AI), C12N (biotech). Bron: USPTO Open Data Portal.",
       "loading": "O&O-inzendingen laden…",
       "error": "Patentgegevens kunnen niet worden geladen.",
       "empty": "Geen inzendingen in deze categorie.",

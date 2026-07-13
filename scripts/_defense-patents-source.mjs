@@ -1,0 +1,164 @@
+import { CHROME_UA, sleep } from './_seed-utils.mjs';
+
+export const USPTO_ODP_API = 'https://api.uspto.gov/api/v1/patent/applications/search';
+export const MAX_PER_CATEGORY = 20;
+
+// Key defense/dual-use assignees. Multi-word names use phrase matching so a
+// broad prefix such as "General*" cannot pull unrelated applicants.
+export const DEFENSE_ASSIGNEE_QUERIES = [
+  'Raytheon*',
+  'Lockheed*',
+  'Northrop*',
+  'Huawei*',
+  'SMIC*',
+  'TSMC*',
+  'DARPA*',
+  'Boeing*',
+  'L3Harris*',
+  '"General Dynamics"',
+  '"BAE Systems"',
+  'Thales*',
+];
+
+export const CPC_CATEGORIES = [
+  { code: 'H04B', desc: 'Transmission / Communications' },
+  { code: 'H01L', desc: 'Semiconductor devices' },
+  { code: 'F42B', desc: 'Ammunition / Explosives' },
+  { code: 'G06N', desc: 'AI / Neural networks' },
+  { code: 'C12N', desc: 'Microorganisms / Biotechnology' },
+];
+
+export function buildOdpQuery(cpcCode) {
+  const code = String(cpcCode ?? '').trim().toUpperCase();
+  if (!/^[A-Z][A-Z0-9]{3}$/.test(code)) {
+    throw new Error(`Invalid CPC subclass: ${cpcCode}`);
+  }
+
+  const assignees = DEFENSE_ASSIGNEE_QUERIES
+    .map((query) => `applicationMetaData.firstApplicantName:${query}`)
+    .join(' OR ');
+
+  return `applicationMetaData.cpcClassificationBag:${code}* AND (${assignees})`;
+}
+
+function normalizeCpc(code) {
+  return String(code ?? '').replace(/\s+/g, '').toUpperCase();
+}
+
+function normalizedPatentId(id) {
+  const value = String(id ?? '').replace(/\s+/g, '');
+  if (!value) return '';
+  return /^US/i.test(value) ? value.toUpperCase() : `US${value}`;
+}
+
+export function mapPatentApplication(record, category) {
+  const metadata = record?.applicationMetaData ?? {};
+  const applicationNumber = String(record?.applicationNumberText ?? metadata.applicationNumberText ?? '').trim();
+  const publicationNumber = String(metadata.earliestPublicationNumber ?? '').trim();
+  const grantNumber = normalizedPatentId(metadata.patentNumber);
+  const patentId = publicationNumber || grantNumber || applicationNumber;
+  const date = String(metadata.filingDate ?? metadata.earliestPublicationDate ?? metadata.grantDate ?? '').trim();
+  if (!patentId || !date) return null;
+
+  const applicant = metadata.firstApplicantName
+    ?? metadata.applicantBag?.[0]?.applicantNameText
+    ?? '';
+  const cpcCodes = Array.isArray(metadata.cpcClassificationBag)
+    ? metadata.cpcClassificationBag.map(normalizeCpc).filter(Boolean)
+    : [];
+  const categoryCode = normalizeCpc(category?.code);
+  const cpcCode = cpcCodes.find((code) => code.startsWith(categoryCode)) ?? categoryCode;
+
+  const googlePatentId = publicationNumber || grantNumber;
+  const url = googlePatentId
+    ? `https://patents.google.com/patent/${encodeURIComponent(googlePatentId)}`
+    : `https://data.uspto.gov/patent-file-wrapper/search/details/${encodeURIComponent(applicationNumber)}/application-data`;
+
+  return {
+    patentId,
+    title: String(metadata.inventionTitle ?? '').slice(0, 300),
+    date,
+    assignee: String(applicant).slice(0, 200),
+    cpcCode,
+    cpcDesc: String(category?.desc ?? ''),
+    // Patent File Wrapper search metadata does not include abstracts. Preserve
+    // the existing response shape and let the panel render the title metadata.
+    abstract: '',
+    url,
+  };
+}
+
+function requireApiKey(apiKey) {
+  const value = String(apiKey ?? '').trim();
+  if (!value) throw new Error('USPTO_API_KEY is required');
+  return value;
+}
+
+export async function fetchCategoryPatents(category, {
+  apiKey,
+  fetchFn = (...args) => globalThis.fetch(...args),
+} = {}) {
+  const key = requireApiKey(apiKey);
+  const url = new URL(USPTO_ODP_API);
+  url.searchParams.set('q', buildOdpQuery(category.code));
+  url.searchParams.set('limit', String(MAX_PER_CATEGORY));
+  url.searchParams.set('sort', 'applicationMetaData.filingDate desc');
+
+  const response = await fetchFn(url.toString(), {
+    headers: {
+      'X-API-KEY': key,
+      'User-Agent': CHROME_UA,
+      Accept: 'application/json',
+    },
+    signal: AbortSignal.timeout(20_000),
+  });
+
+  // ODP uses 404 for a valid query with zero matching records.
+  if (response.status === 404) return [];
+  if (!response.ok) throw new Error(`USPTO ODP HTTP ${response.status}`);
+
+  const data = await response.json();
+  const records = Array.isArray(data?.patentFileWrapperDataBag)
+    ? data.patentFileWrapperDataBag
+    : [];
+
+  return records
+    .map((record) => mapPatentApplication(record, category))
+    .filter(Boolean);
+}
+
+export async function fetchAllPatents({
+  apiKey,
+  categories = CPC_CATEGORIES,
+  delayMs = 3_000,
+  fetchCategory = fetchCategoryPatents,
+  logger = console,
+} = {}) {
+  const key = requireApiKey(apiKey);
+  const all = [];
+
+  for (let index = 0; index < categories.length; index++) {
+    const category = categories[index];
+    if (index > 0 && delayMs > 0) await sleep(delayMs);
+    logger.log(`  Fetching ${category.code} (${category.desc})...`);
+
+    try {
+      const patents = await fetchCategory(category, { apiKey: key });
+      logger.log(`    ${patents.length} patents`);
+      all.push(...patents);
+    } catch (error) {
+      logger.warn(`    ${category.code}: failed (${error.message})`);
+    }
+  }
+
+  const seen = new Set();
+  const patents = all
+    .filter((patent) => {
+      if (seen.has(patent.patentId)) return false;
+      seen.add(patent.patentId);
+      return true;
+    })
+    .sort((a, b) => b.date.localeCompare(a.date));
+
+  return { patents, total: patents.length, fetchedAt: new Date().toISOString() };
+}

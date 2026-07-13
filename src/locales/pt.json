@@ -2016,7 +2016,7 @@
     },
     "defensePatents": {
       "title": "Sinal de P&D",
-      "infoTooltip": "Depósitos de patentes de defesa e uso duplo semanais por Raytheon, Lockheed, Huawei, DARPA e outras organizações estratégicas. Categorias: H04B (comms), H01L (semicondutores), F42B (munição), G06N (IA), C12N (biotecnologia). Fonte: USPTO PatentsView.",
+      "infoTooltip": "Depósitos de patentes de defesa e uso duplo semanais por Raytheon, Lockheed, Huawei, DARPA e outras organizações estratégicas. Categorias: H04B (comms), H01L (semicondutores), F42B (munição), G06N (IA), C12N (biotecnologia). Fonte: USPTO Open Data Portal.",
       "loading": "Carregando depósitos de P&D…",
       "error": "Falha ao carregar dados de patentes.",
       "empty": "Nenhum depósito nesta categoria.",

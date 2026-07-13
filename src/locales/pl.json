@@ -2239,7 +2239,7 @@
     },
     "defensePatents": {
       "title": "Sygnał B+R",
-      "infoTooltip": "Tygodniowe zgłoszenia patentów obronnych i dual-use przez Raytheon, Lockheed, Huawei, DARPA i inne organizacje strategiczne. Kategorie: H04B (komunikacja), H01L (półprzewodniki), F42B (amunicja), G06N (AI), C12N (biotechnologia). Źródło: USPTO PatentsView.",
+      "infoTooltip": "Tygodniowe zgłoszenia patentów obronnych i dual-use przez Raytheon, Lockheed, Huawei, DARPA i inne organizacje strategiczne. Kategorie: H04B (komunikacja), H01L (półprzewodniki), F42B (amunicja), G06N (AI), C12N (biotechnologia). Źródło: USPTO Open Data Portal.",
       "loading": "Ładowanie zgłoszeń B+R…",
       "error": "Nie udało się załadować danych patentowych.",
       "empty": "Brak zgłoszeń w tej kategorii.",

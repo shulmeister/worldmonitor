@@ -2239,7 +2239,7 @@
     },
     "defensePatents": {
       "title": "Signál výzkumu a vývoje",
-      "infoTooltip": "Týdenní podání obranných a duálně použitelných patentů od společností Raytheon, Lockheed, Huawei, DARPA a dalších strategických organizací. Kategorie: H04B (komunikace), H01L (polovodiče), F42B (munice), G06N (AI), C12N (biotechnologie). Zdroj: USPTO PatentsView.",
+      "infoTooltip": "Týdenní podání obranných a duálně použitelných patentů od společností Raytheon, Lockheed, Huawei, DARPA a dalších strategických organizací. Kategorie: H04B (komunikace), H01L (polovodiče), F42B (munice), G06N (AI), C12N (biotechnologie). Zdroj: USPTO Open Data Portal.",
       "loading": "Načítání podání výzkumu a vývoje…",
       "error": "Nepodařilo se načíst data patentů.",
       "empty": "V této kategorii nejsou žádná podání.",

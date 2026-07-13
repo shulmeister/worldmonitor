@@ -58,11 +58,11 @@ contract needs to be made fully uniform beyond shared `runSeed` users.
 
 ## Services to DELETE (46 total)
 
-### Standalone delete (no bundle replacement needed)
+### Standalone service retired before bundle restoration
 
 | # | Service Name | Service ID | Reason |
 |---|---|---|---|
-| 1 | seed-defense-patents (DISABLED) | `6f8bfd1b-7ccc-4db5-b03c-a2075b173e91` | Already disabled, no data flowing |
+| 1 | seed-defense-patents (DISABLED) | `6f8bfd1b-7ccc-4db5-b03c-a2075b173e91` | Standalone remains deleted; producer restored in `seed-bundle-static-ref` using USPTO ODP |
 
 ### Replaced by seed-bundle-ecb-eu
 
@@ -218,9 +218,10 @@ All new services share these settings:
 | **Start command** | `node scripts/seed-bundle-static-ref.mjs` |
 | **Cron schedule** | `0 3 * * 0` (weekly, Sunday 03:00 UTC) |
 | **Watch paths** | `scripts/**`, `shared/**` |
-| **Replaces** | 3 services |
-| **Net savings** | 2 slots |
-| **Members** | Submarine Cables (weekly), Chokepoint Baselines (400d, runs rarely), Military Bases (30d, runs rarely) |
+| **Replaces** | 4 services (including the retired defense-patents producer) |
+| **Net savings** | 3 slots |
+| **Members** | Submarine Cables (weekly), Defense Patents (weekly), Chokepoint Baselines (400d, runs rarely), Military Bases (30d, runs rarely) |
+| **Required variable** | `USPTO_API_KEY=${{shared.USPTO_API_KEY}}` |
 
 ### Bundle 4: seed-bundle-resilience
 
@@ -481,7 +482,7 @@ Start with lowest-risk, highest-savings bundles.
 | Order | Bundle | Slots Freed | Risk | Cron Frequency |
 |---|---|---|---|---|
 | 1 | seed-bundle-ecb-eu | 3 | Low (daily, same API) | Daily |
-| 2 | seed-bundle-static-ref | 2 | Low (weekly, static data) | Weekly |
+| 2 | seed-bundle-static-ref | 3 | Low (weekly, static data) | Weekly |
 | 3 | seed-bundle-resilience | 1 | Low (6h, annual window) | 6h |
 | 4 | seed-bundle-portwatch | 3 | Medium (hourly, 4 members) | Hourly |
 | 5 | seed-bundle-climate | 4 | Medium (3h, 5 members) | 3h |
@@ -491,9 +492,8 @@ Start with lowest-risk, highest-savings bundles.
 | 9 | seed-bundle-derived-signals | 1 | Low (5min, Redis-only) | 5min |
 | 10 | seed-bundle-market-backup | 4 | Low (backup for relay) | 5min |
 | 11 | seed-bundle-relay-backup | 3 | Low (backup for relay) | 30min |
-| - | seed-defense-patents | 1 | None (already disabled) | - |
 
-**Running total:** 3 + 2 + 1 + 3 + 4 + 5 + 5 + 3 + 1 + 4 + 3 + 1 = **35 slots freed**
+**Running total:** 3 + 3 + 1 + 3 + 4 + 5 + 5 + 3 + 1 + 4 + 3 = **35 slots freed**
 
 ---
 

@@ -2229,7 +2229,7 @@
     },
     "defensePatents": {
       "title": "Signaux R&D",
-      "infoTooltip": "Dépôts hebdomadaires de brevets de défense et à double usage par Raytheon, Lockheed, Huawei, DARPA et autres organisations stratégiques. Catégories : H04B (communications), H01L (semi-conducteurs), F42B (munitions), G06N (IA), C12N (biotechnologie). Source : USPTO PatentsView.",
+      "infoTooltip": "Dépôts hebdomadaires de brevets de défense et à double usage par Raytheon, Lockheed, Huawei, DARPA et autres organisations stratégiques. Catégories : H04B (communications), H01L (semi-conducteurs), F42B (munitions), G06N (IA), C12N (biotechnologie). Source : USPTO Open Data Portal.",
       "loading": "Chargement des dépôts R&D…",
       "error": "Impossible de charger les données de brevets.",
       "empty": "Aucun dépôt dans cette catégorie.",

@@ -2006,7 +2006,7 @@
     },
     "defensePatents": {
       "title": "FoU-signal",
-      "infoTooltip": "Veckovisa ansökningar för försvars- och dual-use-patent från Raytheon, Lockheed, Huawei, DARPA och andra strategiska organisationer. Kategorier: H04B (kommunikation), H01L (halvledare), F42B (ammunition), G06N (AI), C12N (bioteknik). Källa: USPTO PatentsView.",
+      "infoTooltip": "Veckovisa ansökningar för försvars- och dual-use-patent från Raytheon, Lockheed, Huawei, DARPA och andra strategiska organisationer. Kategorier: H04B (kommunikation), H01L (halvledare), F42B (ammunition), G06N (AI), C12N (bioteknik). Källa: USPTO Open Data Portal.",
       "loading": "Läser in FoU-ansökningar…",
       "error": "Kunde inte läsa in patentdata.",
       "empty": "Inga ansökningar i denna kategori.",

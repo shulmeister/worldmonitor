@@ -58,7 +58,7 @@ service MilitaryService {
     option (sebuf.http.config) = {path: "/get-wingbits-live-flight", method: HTTP_METHOD_GET};
   }
 
-  // ListDefensePatents retrieves recent defense/dual-use patent filings from USPTO PatentsView.
+  // ListDefensePatents retrieves recent defense/dual-use patent filings from the USPTO Open Data Portal.
   rpc ListDefensePatents(ListDefensePatentsRequest) returns (ListDefensePatentsResponse) {
     option (sebuf.http.config) = {path: "/list-defense-patents", method: HTTP_METHOD_GET};
   }

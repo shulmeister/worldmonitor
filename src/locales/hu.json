@@ -2288,7 +2288,7 @@
     },
     "defensePatents": {
       "title": "K+F Jel",
-      "infoTooltip": "A Raytheon, Lockheed, Huawei, DARPA és más stratégiai szervezetek heti védelmi és kettős felhasználású szabadalmi bejelentései. Kategóriák: H04B (kommunikáció), H01L (félvezetők), F42B (lőszerek), G06N (MI), C12N (biotechnológia). Forrás: USPTO PatentsView.",
+      "infoTooltip": "A Raytheon, Lockheed, Huawei, DARPA és más stratégiai szervezetek heti védelmi és kettős felhasználású szabadalmi bejelentései. Kategóriák: H04B (kommunikáció), H01L (félvezetők), F42B (lőszerek), G06N (MI), C12N (biotechnológia). Forrás: USPTO Open Data Portal.",
       "loading": "K+F bejelentések betöltése…",
       "error": "Szabadalmi adatok betöltése sikertelen.",
       "empty": "Nincsenek bejelentések ebben a kategóriában.",

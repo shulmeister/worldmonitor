@@ -2219,7 +2219,7 @@
     },
     "defensePatents": {
       "title": "Ar-Ge Sinyali",
-      "infoTooltip": "Raytheon, Lockheed, Huawei, DARPA ve diğer stratejik kuruluşların haftalık savunma ve çift kullanımlı patent başvuruları. Kategoriler: H04B (haberleşme), H01L (yarıiletkenler), F42B (mühimmat), G06N (AI), C12N (biyoteknoloji). Kaynak: USPTO PatentsView.",
+      "infoTooltip": "Raytheon, Lockheed, Huawei, DARPA ve diğer stratejik kuruluşların haftalık savunma ve çift kullanımlı patent başvuruları. Kategoriler: H04B (haberleşme), H01L (yarıiletkenler), F42B (mühimmat), G06N (AI), C12N (biyoteknoloji). Kaynak: USPTO Open Data Portal.",
       "loading": "Ar-Ge başvuruları yükleniyor…",
       "error": "Patent verisi yüklenemedi.",
       "empty": "Bu kategoride başvuru yok.",
