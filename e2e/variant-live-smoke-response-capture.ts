@@ -49,10 +49,18 @@ export function captureLocalApiResponse<RequestType>(
   responseCaptureErrors: string[],
 ): void {
   let url: string;
+  try {
+    url = response.url();
+  } catch (error) {
+    responseCaptureErrors.push(error instanceof Error ? error.message : String(error));
+    return;
+  }
+
+  if (!isLocalApiUrl(url)) return;
+
   let request: RequestType;
   let status: number;
   try {
-    url = response.url();
     request = response.request();
     status = response.status();
   } catch (error) {
@@ -60,7 +68,6 @@ export function captureLocalApiResponse<RequestType>(
     return;
   }
 
-  if (!isLocalApiUrl(url)) return;
   const requestMetadata = apiRequestMetadata.get(request);
   apiResponses.push({
     method: requestMetadata?.method ?? 'unknown',

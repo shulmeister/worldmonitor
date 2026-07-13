@@ -52,6 +52,23 @@ test('variant smoke response capture retains normal local API status diagnostics
   assert.deepEqual(responseCaptureErrors, []);
 });
 
+test('variant smoke response capture ignores non-local responses before reading request metadata', () => {
+  const request = () => { throw new Error('request() must not be called'); };
+  const status = () => { throw new Error('status() must not be called'); };
+  const apiResponses: ApiDiagnostic[] = [];
+  const responseCaptureErrors: string[] = [];
+
+  captureLocalApiResponse(
+    { request, status, url: () => 'https://example.com/asset.js' },
+    new Map(),
+    apiResponses,
+    responseCaptureErrors,
+  );
+
+  assert.deepEqual(apiResponses, []);
+  assert.deepEqual(responseCaptureErrors, []);
+});
+
 test('variant smoke response capture propagates metadata lookup failures', () => {
   const request = {};
   assert.throws(() => {
