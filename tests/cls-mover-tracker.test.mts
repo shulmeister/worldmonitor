@@ -209,6 +209,73 @@ describe('startClsMoverTracking observer lifecycle', () => {
     });
   });
 
+  it('attributes subthreshold shifts accumulated across observer callbacks', () => {
+    const intel = fakePanel('intel', 100, 200);
+    const politics = fakePanel('politics', 320, 200);
+    withTrackerHarness([intel, politics], ({ deliver }) => {
+      startClsMoverTracking();
+
+      intel.height = 240;
+      politics.top = 360;
+      deliver([{ startTime: 100, value: 0.04, hadRecentInput: false }]);
+      assert.deepEqual(getMoverRecordStrings(), [], 'a single subthreshold shift stays buffered');
+
+      intel.height = 280;
+      politics.top = 400;
+      deliver([{ startTime: 500, value: 0.04, hadRecentInput: false }]);
+      assert.deepEqual(getMoverRecordStrings(), [
+        't=100 v=0.04 sized:intel+40 moved:1',
+        't=500 v=0.04 sized:intel+40 moved:1',
+      ]);
+
+      politics.height = 260;
+      deliver([{ startTime: 800, value: 0.04, hadRecentInput: false }]);
+      assert.deepEqual(getMoverRecordStrings(), [
+        't=100 v=0.04 sized:intel+40 moved:1',
+        't=500 v=0.04 sized:intel+40 moved:1',
+        't=800 v=0.04 sized:politics+60',
+      ], 'later shifts in an already-qualified session are reported immediately');
+    });
+  });
+
+  it('does not combine buffered entries across CLS session boundaries', () => {
+    const intel = fakePanel('intel', 100, 200);
+    withTrackerHarness([intel], ({ deliver }) => {
+      startClsMoverTracking();
+
+      intel.height = 240;
+      deliver([
+        { startTime: 100, value: 0.03, hadRecentInput: false },
+        { startTime: 1_200, value: 0.03, hadRecentInput: false },
+      ]);
+      assert.deepEqual(getMoverRecordStrings(), [], 'separate CLS windows do not form a synthetic 0.06 shift');
+
+      intel.height = 280;
+      deliver([{ startTime: 1_500, value: 0.03, hadRecentInput: false }]);
+      assert.deepEqual(getMoverRecordStrings(), ['t=1500 v=0.03 sized:intel+40']);
+    });
+  });
+
+  it('lets a buffered callback prefix qualify prior same-session mover evidence', () => {
+    const intel = fakePanel('intel', 100, 200);
+    withTrackerHarness([intel], ({ deliver }) => {
+      startClsMoverTracking();
+
+      intel.height = 240;
+      deliver([{ startTime: 100, value: 0.04, hadRecentInput: false }]);
+      assert.deepEqual(getMoverRecordStrings(), []);
+
+      intel.height = 280;
+      deliver([
+        { startTime: 500, value: 0.04, hadRecentInput: false },
+        { startTime: 1_600, value: 0.01, hadRecentInput: false },
+      ]);
+      assert.deepEqual(getMoverRecordStrings(), [
+        't=100 v=0.04 sized:intel+40',
+      ], 'the same-session prefix qualifies mover evidence captured by the prior callback');
+    });
+  });
+
   it('tracks stable CTA mover keys and clears the ring on bfcache restore', () => {
     const intel = fakePanel('intel', 100, 200);
     const proCta = fakePanel('pro-widget-cta', 320, 200, 'mover');
