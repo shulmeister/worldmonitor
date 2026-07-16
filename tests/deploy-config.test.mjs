@@ -2488,6 +2488,55 @@ describe('variant subdomain dashboard SEO (#4996)', () => {
   });
 });
 
+describe('docs host scoping — Mintlify proxy is www-only (#5345)', () => {
+  // The /docs rewrite proxies worldmonitor.mintlify.dev with no host condition,
+  // so every variant subdomain served the full docs site and Googlebot crawled
+  // the duplicates. Redirects run before rewrites on Vercel, so a host-scoped
+  // redirect entry is what keeps subdomain /docs requests from reaching the
+  // proxy. The host list is derived from the /dashboard variant rewrites so a
+  // new variant subdomain cannot ship outside the docs redirect.
+  const docsHostRedirect = vercelConfig.redirects.find(
+    (r) => r.source === '/docs/:match*' && r.has
+  );
+  const variantHosts = vercelConfig.rewrites
+    .filter((r) => r.source === '/dashboard' && r.has)
+    .map((r) => (r.has ?? []).find((h) => h.type === 'host')?.value ?? '');
+
+  it('redirects subdomain /docs/* to www permanently', () => {
+    assert.ok(docsHostRedirect, 'expected a host-conditioned redirect for /docs/:match*');
+    assert.equal(docsHostRedirect.destination, 'https://www.worldmonitor.app/docs/:match*');
+    assert.equal(docsHostRedirect.permanent, true);
+  });
+
+  it('the host condition covers every variant subdomain plus api., and never www.', () => {
+    const hostValue = (docsHostRedirect?.has ?? []).find((h) => h.type === 'host')?.value ?? '';
+    const hostRe = new RegExp(hostValue);
+    assert.ok(variantHosts.length > 0, 'variant host extraction from /dashboard rewrites found nothing');
+    for (const host of [...variantHosts, 'api.worldmonitor.app']) {
+      assert.match(host, hostRe, `${host} must be caught by the docs host redirect`);
+    }
+    assert.ok(!hostRe.test('www.worldmonitor.app'), 'www must keep serving the docs proxy');
+  });
+
+  it('redirects prefix-less /api-reference/* (Googlebot fetches Mintlify RSC route strings) into /docs on www', () => {
+    // Mintlify's RSC flight payload embeds its internal routes without the
+    // /docs base path; Googlebot speculatively fetches those strings against
+    // whatever host served the page. Without this redirect they 404 (the SPA
+    // catch-all excludes ^api), flooding GSC.
+    const redirect = vercelConfig.redirects.find((r) => r.source === '/api-reference/:match*');
+    assert.ok(redirect, 'expected a redirect for /api-reference/:match*');
+    assert.equal(redirect.destination, 'https://www.worldmonitor.app/docs/api-reference/:match*');
+    assert.equal(redirect.permanent, true);
+    assert.equal(redirect.has, undefined, 'must apply on every host, www included');
+  });
+
+  it('the www docs proxy rewrite itself is untouched', () => {
+    const proxy = vercelConfig.rewrites.find((r) => r.source === '/docs/:match*');
+    assert.ok(proxy, 'expected the /docs/:match* rewrite');
+    assert.equal(proxy.destination, 'https://worldmonitor.mintlify.dev/docs/:match*');
+  });
+});
+
 describe('markdown canonical Link headers (#4999)', () => {
   // The sitemap-listed markdown pages are intentionally raw text/markdown for
   // agents, so they cannot carry a <link rel="canonical">. RFC 6596 allows the
