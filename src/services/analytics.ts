@@ -128,10 +128,20 @@ function sendUmamiCall(call: QueuedUmamiCall): boolean {
   const umami = window.umami;
   if (!umami) return false;
   try {
-    if (call.kind === 'track') {
-      umami.track(call.event, call.data);
-    } else {
-      umami.identify(call.data);
+    const result: unknown = call.kind === 'track'
+      ? umami.track(call.event, call.data)
+      : umami.identify(call.data);
+    // Umami's track()/identify() return the beacon `fetch()` promise, which
+    // rejects ASYNCHRONOUSLY on a transient network failure — offline, an
+    // ad-blocker extension that wraps window.fetch, or the self-hosted
+    // collector being briefly unreachable. This try/catch only guards a
+    // SYNCHRONOUS throw, so an unhandled rejection would otherwise escape to
+    // onunhandledrejection and surface in Sentry as a bare
+    // `TypeError: Failed to fetch` rooted in whatever first-party code fired
+    // the event (WORLDMONITOR-WW/WX/WY). A dropped analytics beacon is
+    // unactionable — swallow the rejection.
+    if (result && typeof (result as { catch?: unknown }).catch === 'function') {
+      (result as Promise<unknown>).catch(() => {});
     }
     // Durable-delivery contract for the terminal funnel event (#4934
     // round-2 F2): the marker written by trackCheckoutSuccess is cleared
