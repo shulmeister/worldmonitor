@@ -202,6 +202,6 @@ const server = http.createServer(async (req, res) => {
   }
 });
 
-server.listen(PORT, '0.0.0.0', () => {
-  console.log(`Redis REST proxy listening on 0.0.0.0:${PORT}`);
+server.listen(PORT, process.env.HOST || '0.0.0.0', () => {
+  console.log(`Redis REST proxy listening on ${process.env.HOST || '0.0.0.0'}:${PORT}`);
 });
