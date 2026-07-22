@@ -16,7 +16,7 @@ without recreating them.
 | `run/api.sh` | sibling | World Monitor API sidecar on `:46123` |
 | `run/seeders.sh` | sibling | One-shot data refresher (RSS, AIS, sanctions, …) |
 | `run/web.sh` | sibling | Wrapper that execs `web-server.mjs` |
-| `deploy.sh` | sibling | Build + rsync-style deploy to the running checkout |
+| `deploy.sh` | sibling | In-place build: deps, handler bundles, corpus, tsc, vite → `dist/` |
 | `env.example` | sibling | Template for `<repo>/.env` (secrets + per-host config) |
 | `install-launchd.sh` | this task | Generate + lint + bootstrap the 6 LaunchAgents |
 
@@ -33,7 +33,7 @@ without recreating them.
                                                   ▼
                        ┌────────────────────────────────────────────────┐
                        │  web-server.mjs  (LaunchAgent: worldmonitor-web) │
-                       │  LISTEN 0.0.0.0:3040                             │
+                       │  LISTEN 127.0.0.1:3040                             │
                        │  ─ static  →  <repo>/dist/                       │
                        │  ─ /api/*  ─┐                                    │
                        └─────────────┼────────────────────────────────────┘
@@ -49,7 +49,7 @@ without recreating them.
          ┌────────────────────────────────┐   ┌─────────────────────────────┐
          │  redis-rest                    │   │  relay                      │
          │  (LaunchAgent: …-redis-rest)   │   │  (LaunchAgent: …-relay)     │
-         │  LISTEN 127.0.0.1:8079         │   │  LISTEN 0.0.0.0:3004        │
+         │  LISTEN 127.0.0.1:8079         │   │  LISTEN 127.0.0.1:3004        │
          │  HTTP→Redis shim               │   │  WebSocket fanout          │
          └──────────────┬─────────────────┘   └─────────────┬───────────────┘
                         │                                  │
@@ -74,11 +74,11 @@ All six services are children of one repo checkout. Each wrapper script in
 
 | Service     | Port   | Bind          | Purpose                              |
 | ----------- | ------ | ------------- | ------------------------------------ |
-| web         | 3040   | `0.0.0.0`     | Cloudflare tunnel entrypoint          |
+| web         | 3040   | `127.0.0.1`   | Cloudflare tunnel entrypoint (cloudflared runs on this host) |
 | api         | 46123  | `127.0.0.1`   | Sidecar reached only from `web`       |
 | redis-rest  | 8079   | `127.0.0.1`   | HTTP→Redis shim                       |
 | redis       | 6390   | `127.0.0.1`   | Redis itself                          |
-| relay       | 3004   | `0.0.0.0`     | WebSocket fanout (direct or proxied)  |
+| relay       | 3004   | `127.0.0.1`   | AIS relay — reached only by the sidecar (HOST=127.0.0.1) |
 | seeders     | —      | —             | Timer-only, no port                   |
 
 All ports are reachable on localhost. `web` and `relay` also bind public
