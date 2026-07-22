@@ -159,17 +159,22 @@ function send(res, status, body, headers = {}) {
 
 function serveFile(req, res, absPath, headers) {
   // Stream the file so we don't materialize large textures/audio into memory.
+  // writeHead fires only on 'open' (valid fd): ENOENT/EISDIR/open races reach
+  // 'error' BEFORE any headers exist, so the 404 path is actually reachable —
+  // and a second writeHead (which throws even pre-flush) can never happen.
   const stream = fs.createReadStream(absPath);
   stream.on('error', (err) => {
-    // Headers may already be out (stream errored mid-body) — a second
-    // writeHead here would throw inside the listener and kill the process.
-    if (res.headersSent) { res.destroy(); return; }
+    if (res.headersSent || res.writableEnded) { res.destroy(); return; }
     const status = err.code === 'ENOENT' || err.code === 'EISDIR' ? 404 : 500;
-    send(res, status, status === 404 ? 'Not Found' : 'Internal Server Error',
-      { 'Content-Type': 'text/plain; charset=utf-8' });
+    try {
+      send(res, status, status === 404 ? 'Not Found' : 'Internal Server Error',
+        { 'Content-Type': 'text/plain; charset=utf-8' });
+    } catch { res.destroy(); }
   });
-  res.writeHead(200, headers);
-  stream.pipe(res);
+  stream.once('open', () => {
+    try { res.writeHead(200, headers); } catch { stream.destroy(); res.destroy(); return; }
+    stream.pipe(res);
+  });
 }
 
 const ACCESS_LOG = (method, urlPath, status, ms) =>
@@ -267,7 +272,9 @@ function handleApiProxy(req, res, urlPath, start) {
   // Overwrite any client Authorization — the token never leaves the private hop.
   outHeaders['authorization'] = `Bearer ${API_TOKEN}`;
 
-  const proxyReq = http.request(
+  let proxyReq;
+  try {
+    proxyReq = http.request(
     target,
     {
       method: req.method,
@@ -285,6 +292,13 @@ function handleApiProxy(req, res, urlPath, start) {
       proxyRes.pipe(res);
     }
   );
+
+  } catch (err) {
+    console.error(`api proxy request build failed: ${err.message}`);
+    return send(res, 502, JSON.stringify({ error: 'sidecar unavailable' }), {
+      'Content-Type': 'application/json; charset=utf-8',
+    });
+  }
 
   proxyReq.on('timeout', () => {
     proxyReq.destroy(new Error('upstream timeout'));
@@ -335,8 +349,13 @@ const server = http.createServer((req, res) => {
   }
 
   // API proxy takes precedence over static (matches nginx location /api/).
+  // Forward the ENCODED pathname+search from the parsed URL — never raw
+  // req.url: Node accepts absolute-form targets (GET http://x/api/y), and
+  // concatenating one into the upstream URL made http.request() throw
+  // ERR_INVALID_URL synchronously — an uncaught crash per request.
   if (pathname === '/api' || pathname.startsWith('/api/')) {
-    return handleApiProxy(req, res, rawUrl, start);
+    const u = new URL(rawUrl, 'http://internal');
+    return handleApiProxy(req, res, u.pathname + u.search, start);
   }
 
   handleStatic(req, res, pathname, start);
