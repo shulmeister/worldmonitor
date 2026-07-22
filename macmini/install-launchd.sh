@@ -114,18 +114,13 @@ print_status_table() {
   printf '\n=== worldmonitor launchd status ===\n'
   printf '%-50s %-7s %-7s\n' "LABEL" "PID" "STATE"
   printf '%-50s %-7s %-7s\n' "----" "---" "-----"
-  local line label pid status
-  # `launchctl list` tab-separates: PID Status Label
-  while IFS= read -r line; do
-    [[ -z "$line" ]] && continue
-    pid="${line%%	*}"; rest="${line#*	}"
-    status="${rest%%	*}"; label="${rest#*	}"
-    case "$label" in
-      com.coloradocareassist.worldmonitor.*) ;;
-      *) continue ;;
-    esac
+  # Labels are com.coloradocareassist.worldmonitor-<svc> (HYPHEN, not dot).
+  # `launchctl list` is tab-separated: PID Status Label.
+  local pid status label
+  while IFS=$'\t' read -r pid status label; do
+    [[ -n "$label" ]] || continue
     printf '%-50s %-7s %-7s\n' "$label" "$pid" "$status"
-  done < <(launchctl list 2>/dev/null | grep -E "^[-\t0-9]+\t[0-9]+\tcom\.coloradocareassist\.worldmonitor\." || true)
+  done < <(launchctl list 2>/dev/null | awk -F'\t' '$3 ~ /^com\.coloradocareassist\.worldmonitor-/' || true)
 
   printf '\n=== port checks ===\n'
   printf '%-12s %-6s %s\n' "SERVICE" "PORT" "STATUS"
@@ -134,7 +129,9 @@ print_status_table() {
   for svc in "${SERVICES[@]}"; do
     if ! port="$(port_for "$svc")"; then continue; fi
     mark="WAIT"
-    if command -v lsof >/dev/null 2>&1 && lsof -nP -iTCP:"$port" -sTCP:LISTEN >/dev/null 2>&1; then
+    if [[ "$svc" == "relay" && -z "${AIS_KEY:-}" ]]; then
+      mark="SKIPPED (no AISSTREAM_API_KEY)"
+    elif command -v lsof >/dev/null 2>&1 && lsof -nP -iTCP:"$port" -sTCP:LISTEN >/dev/null 2>&1; then
       mark="OK"
     fi
     printf '%-12s %-6s %s\n' "$svc" "$port" "$mark"
@@ -160,11 +157,27 @@ command -v plutil >/dev/null 2>&1 || die "plutil not found (required for plist l
 
 [[ -f "$REPO_ROOT/.env" ]] || die "missing $REPO_ROOT/.env — copy macmini/env.example first"
 
+# The AIS relay hard-exits (exit 1) without AISSTREAM_API_KEY; KeepAlive would
+# flap it forever. Skip installing it until the key exists — rerun this
+# installer after adding the key to .env (free key: https://aisstream.io).
+AIS_KEY="$(grep -E '^AISSTREAM_API_KEY=' "$REPO_ROOT/.env" | head -1 | cut -d= -f2- | tr -d '\"' || true)"
+INSTALL_SERVICES=()
+for svc in "${SERVICES[@]}"; do
+  if [[ "$svc" == "relay" && -z "$AIS_KEY" ]]; then
+    printf 'NOTE: AISSTREAM_API_KEY empty in .env — skipping relay (vessel tracking off).\n'
+    printf '      Add the key and rerun this installer to enable it.\n'
+    launchctl bootout "$LAUNCH_DOMAIN/$LABEL_PREFIX-relay" 2>/dev/null || true
+    rm -f "$LAUNCH_AGENTS_DIR/$LABEL_PREFIX-relay.plist"
+    continue
+  fi
+  INSTALL_SERVICES+=("$svc")
+done
+
 mkdir -p "$LOG_DIR" "$LAUNCH_AGENTS_DIR"
 
 # Pre-flight: all six wrappers must exist; fail fast with a clear list.
 missing=()
-for svc in "${SERVICES[@]}"; do
+for svc in "${INSTALL_SERVICES[@]}"; do
   wrapper="$REPO_ROOT/macmini/run/$svc.sh"
   [[ -x "$wrapper" ]] || missing+=("$wrapper")
 done
@@ -176,7 +189,7 @@ fi
 
 # Generate + write all six plists.
 printf 'Generating plists in %s\n' "$LAUNCH_AGENTS_DIR"
-for svc in "${SERVICES[@]}"; do
+for svc in "${INSTALL_SERVICES[@]}"; do
   mode="$(mode_for "$svc")"
   label="$LABEL_PREFIX-$svc"
   plist="$LAUNCH_AGENTS_DIR/$label.plist"
@@ -187,7 +200,7 @@ done
 # Lint ALL plists before touching launchctl — fail fast on any malformed XML.
 printf 'Linting plists...\n'
 failed=()
-for svc in "${SERVICES[@]}"; do
+for svc in "${INSTALL_SERVICES[@]}"; do
   label="$LABEL_PREFIX-$svc"
   plist="$LAUNCH_AGENTS_DIR/$label.plist"
   if plutil -lint "$plist" >/dev/null 2>&1; then
@@ -204,7 +217,7 @@ fi
 
 # Bootstrap in dependency order.
 printf 'Bootstrapping in dependency order...\n'
-for svc in "${SERVICES[@]}"; do
+for svc in "${INSTALL_SERVICES[@]}"; do
   label="$LABEL_PREFIX-$svc"
   plist="$LAUNCH_AGENTS_DIR/$label.plist"
   printf '  bootstrap %s\n' "$label"
