@@ -21,6 +21,6 @@ for _v in REDIS_PASSWORD REDIS_TOKEN RELAY_SHARED_SECRET LOCAL_API_TOKEN; do
   esac
 done
 
-export PORT="$WM_WEB_PORT"
-
+# web-server.mjs reads WM_WEB_PORT (already exported by `set -a` above);
+# it does not honor PORT, so no extra export here.
 exec /opt/homebrew/bin/node macmini/web-server.mjs

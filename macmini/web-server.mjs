@@ -191,14 +191,18 @@ function handleHealthz(req, res) {
 }
 
 function handleStatic(req, res, urlPath, start) {
+  // Log once, on close, with the REAL status — serveFile streams async, so a
+  // synchronous "200" here would lie when the file vanishes between stat and
+  // open (reviewer finding #3).
+  res.once('close', () => ACCESS_LOG(req.method, urlPath, res.statusCode, Date.now() - start));
+
   // Embed routes — locked-down CSP, no SPA fallback.
   if (urlPath === '/embed' || urlPath === '/embed.html') {
     const abs = path.join(DIST_DIR, 'embed.html');
     if (!fs.existsSync(abs)) {
       return send(res, 404, 'Not Found', { 'Content-Type': 'text/plain; charset=utf-8' });
     }
-    serveFile(req, res, abs, { ...EMBED_HEADERS, 'Content-Type': MIME.html });
-    return ACCESS_LOG(req.method, urlPath, 200, Date.now() - start);
+    return serveFile(req, res, abs, { ...EMBED_HEADERS, 'Content-Type': MIME.html });
   }
 
   // Immutable asset trees — strict 404, no SPA fallback.
@@ -215,19 +219,16 @@ function handleStatic(req, res, urlPath, start) {
   } else if (isAssetTree) {
     const safe = safeJoinDist(urlPath);
     if (!safe) {
-      send(res, 400, 'Bad Request', { 'Content-Type': 'text/plain; charset=utf-8' });
-      return ACCESS_LOG(req.method, urlPath, 400, Date.now() - start);
+      return send(res, 400, 'Bad Request', { 'Content-Type': 'text/plain; charset=utf-8' });
     }
     let st;
     try { st = fs.statSync(safe); } catch { st = null; }
     if (!st || !st.isFile()) {
       // Directories included: nginx returns 404 for GET /assets/; streaming a
       // directory would emit EISDIR after writeHead and crash the process.
-      send(res, 404, 'Not Found', { 'Content-Type': 'text/plain; charset=utf-8' });
-      return ACCESS_LOG(req.method, urlPath, 404, Date.now() - start);
+      return send(res, 404, 'Not Found', { 'Content-Type': 'text/plain; charset=utf-8' });
     }
-    serveFile(req, res, safe, { ...ASSET_HEADERS, 'Content-Type': mimeFor(safe) });
-    return ACCESS_LOG(req.method, urlPath, 200, Date.now() - start);
+    return serveFile(req, res, safe, { ...ASSET_HEADERS, 'Content-Type': mimeFor(safe) });
   } else {
     // Anything else: try the exact file; otherwise fall back to dashboard.html.
     // Mirrors nginx `try_files $uri $uri/ /dashboard.html` — paths with no
@@ -251,7 +252,6 @@ function handleStatic(req, res, urlPath, start) {
     'Content-Type': target.endsWith('.html') ? MIME.html : mimeFor(target),
   };
   serveFile(req, res, target, headers);
-  ACCESS_LOG(req.method, urlPath, 200, Date.now() - start);
 }
 
 function handleApiProxy(req, res, urlPath, start) {
