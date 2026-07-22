@@ -56,10 +56,13 @@ const AISSTREAM_URL = 'wss://stream.aisstream.io/v0/stream';
 const API_KEY = process.env.AISSTREAM_API_KEY || process.env.VITE_AISSTREAM_API_KEY;
 const PORT = process.env.PORT || 3004;
 
-if (!API_KEY) {
-  console.error('[Relay] Error: AISSTREAM_API_KEY environment variable not set');
-  console.error('[Relay] Get a free key at https://aisstream.io');
-  process.exit(1);
+// AIS vessel stream is OPTIONAL. Without the key, the relay still runs everything
+// else — market/Finnhub, RSS proxy, news LLM classification, CII source data, and
+// all HTTP endpoints (self-hosted, keyless). Only live vessel tracking is disabled.
+// connectUpstream() early-returns when this is false; /ais/snapshot returns empty.
+const AIS_ENABLED = !!API_KEY;
+if (!AIS_ENABLED) {
+  console.warn('[Relay] AISSTREAM_API_KEY not set — live vessel/AIS stream DISABLED. Relay is still serving market data, news/LLM classification, CII, and all HTTP endpoints. Add the key and restart to enable vessels. https://aisstream.io');
 }
 
 const MAX_WS_CLIENTS = 10; // Cap WS clients — app uses HTTP snapshots, not WS
@@ -11499,6 +11502,10 @@ function switchTab(btn, key) {
 // ─── End Widget Agent ────────────────────────────────────────────────────────
 
 function connectUpstream() {
+  // Vessel stream disabled (no AISSTREAM_API_KEY) — the relay runs everything
+  // else; /ais/snapshot simply returns empty candidateReports. Covers the
+  // startup call AND the reconnect timer, so we never dial aisstream.io keyless.
+  if (!AIS_ENABLED) return;
   // Skip if already connected or connecting
   if (upstreamSocket?.readyState === WebSocket.OPEN ||
       upstreamSocket?.readyState === WebSocket.CONNECTING) return;

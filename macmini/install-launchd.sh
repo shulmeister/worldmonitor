@@ -130,10 +130,9 @@ print_status_table() {
   for svc in "${SERVICES[@]}"; do
     if ! port="$(port_for "$svc")"; then continue; fi
     mark="WAIT"
-    if [[ "$svc" == "relay" && -z "${AIS_KEY:-}" ]]; then
-      mark="SKIPPED (no AISSTREAM_API_KEY)"
-    elif command -v lsof >/dev/null 2>&1 && lsof -nP -iTCP:"$port" -sTCP:LISTEN >/dev/null 2>&1; then
+    if command -v lsof >/dev/null 2>&1 && lsof -nP -iTCP:"$port" -sTCP:LISTEN >/dev/null 2>&1; then
       mark="OK"
+      [[ "$svc" == "relay" && -z "${AIS_KEY:-}" ]] && mark="OK (keyless — vessels off)"
     fi
     printf '%-12s %-6s %s\n' "$svc" "$port" "$mark"
   done
@@ -158,24 +157,17 @@ command -v plutil >/dev/null 2>&1 || die "plutil not found (required for plist l
 
 [[ -f "$REPO_ROOT/.env" ]] || die "missing $REPO_ROOT/.env — copy macmini/env.example first"
 
-# The AIS relay hard-exits (exit 1) without AISSTREAM_API_KEY; KeepAlive would
-# flap it forever. Skip installing it until the key exists — rerun this
-# installer after adding the key to .env (free key: https://aisstream.io).
-# Parse via bash itself (subshell) — env.example ships this line with a
-# trailing inline comment, and a grep|cut parse captures that comment as a
-# non-empty "value", defeating the skip (reviewer finding #1).
+# The relay now runs WITHOUT AISSTREAM_API_KEY (ais-relay.cjs decoupled the vessel
+# stream — it serves market data, news/LLM classification, CII source data, and all
+# HTTP endpoints keyless; only live vessels are disabled). So it is ALWAYS installed.
+# Parse via bash itself (subshell) — env.example ships the key line with a trailing
+# inline comment that a grep|cut parse would capture as a non-empty "value".
 AIS_KEY="$( . "$REPO_ROOT/.env" 2>/dev/null; printf '%s' "${AISSTREAM_API_KEY:-}" )"
-INSTALL_SERVICES=()
-for svc in "${SERVICES[@]}"; do
-  if [[ "$svc" == "relay" && -z "$AIS_KEY" ]]; then
-    printf 'NOTE: AISSTREAM_API_KEY empty in .env — skipping relay (vessel tracking off).\n'
-    printf '      Add the key and rerun this installer to enable it.\n'
-    launchctl bootout "$LAUNCH_DOMAIN/$LABEL_PREFIX-relay" 2>/dev/null || true
-    rm -f "$LAUNCH_AGENTS_DIR/$LABEL_PREFIX-relay.plist"
-    continue
-  fi
-  INSTALL_SERVICES+=("$svc")
-done
+if [[ -z "$AIS_KEY" ]]; then
+  printf 'NOTE: AISSTREAM_API_KEY empty — relay runs keyless (market/news/CII on; live vessels off).\n'
+  printf '      Add the key and rerun to enable vessel tracking.\n'
+fi
+INSTALL_SERVICES=("${SERVICES[@]}")
 
 mkdir -p "$LOG_DIR" "$LAUNCH_AGENTS_DIR"
 
