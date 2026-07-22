@@ -24,6 +24,8 @@ export LOCAL_API_CLOUD_FALLBACK
 export LOCAL_API_TOKEN
 export UPSTASH_REDIS_REST_URL
 export UPSTASH_REDIS_REST_TOKEN="$REDIS_TOKEN"
+# No UPSTASH_ALLOW_INSECURE_HTTP here, unlike relay.sh: only scripts/ais-relay.cjs
+# checks that flag; the sidecar accepts the http:// proxy URL as-is. Deliberate.
 export WS_RELAY_URL="http://127.0.0.1:$WM_RELAY_PORT"
 
 exec /opt/homebrew/bin/node src-tauri/sidecar/local-api-server.mjs

@@ -160,7 +160,10 @@ command -v plutil >/dev/null 2>&1 || die "plutil not found (required for plist l
 # The AIS relay hard-exits (exit 1) without AISSTREAM_API_KEY; KeepAlive would
 # flap it forever. Skip installing it until the key exists — rerun this
 # installer after adding the key to .env (free key: https://aisstream.io).
-AIS_KEY="$(grep -E '^AISSTREAM_API_KEY=' "$REPO_ROOT/.env" | head -1 | cut -d= -f2- | tr -d '\"' || true)"
+# Parse via bash itself (subshell) — env.example ships this line with a
+# trailing inline comment, and a grep|cut parse captures that comment as a
+# non-empty "value", defeating the skip (reviewer finding #1).
+AIS_KEY="$( . "$REPO_ROOT/.env" 2>/dev/null; printf '%s' "${AISSTREAM_API_KEY:-}" )"
 INSTALL_SERVICES=()
 for svc in "${SERVICES[@]}"; do
   if [[ "$svc" == "relay" && -z "$AIS_KEY" ]]; then
