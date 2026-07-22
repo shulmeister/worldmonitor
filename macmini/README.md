@@ -25,9 +25,9 @@ without recreating them.
 ```
                                   ┌───────────────────────────────┐
                                   │       Cloudflare Tunnel       │
-                                  │  (worldmonitor.app, tech.*,   │
-                                  │   finance.*, commodity.*,     │
-                                  │   happy.*, energy.*)          │
+                                  │ worldmonitor.coloradocare-    │
+                                  │ assist.com → 127.0.0.1:3040   │
+                                  │ (cloudflared on this host)    │
                                   └───────────────┬───────────────┘
                                                   │ HTTPS (443)
                                                   ▼
@@ -81,8 +81,8 @@ All six services are children of one repo checkout. Each wrapper script in
 | relay       | 3004   | `127.0.0.1`   | AIS relay — reached only by the sidecar (HOST=127.0.0.1) |
 | seeders     | —      | —             | Timer-only, no port                   |
 
-All ports are reachable on localhost. `web` and `relay` also bind public
-addresses because the Cloudflare Tunnel dials them directly.
+Nothing in this stack binds a public address. `cloudflared` runs on this
+same host and dials `127.0.0.1:3040`; the tunnel is the only public entry.
 
 ## Environment Variables
 
@@ -92,14 +92,16 @@ list; the must-fill entries are:
 
 ```bash
 # Crypto-grade secrets — generate each once with `openssl rand -hex 32`
-SESSION_SECRET=…
-ENCRYPTION_KEY=…
-INTERNAL_API_TOKEN=…
-WEBHOOK_SIGNING_SECRET=…
+REDIS_PASSWORD=…          # redis --requirepass
+REDIS_TOKEN=…             # bearer for the redis-rest proxy (SRH_TOKEN)
+RELAY_SHARED_SECRET=…     # auths sidecar→relay calls
+LOCAL_API_TOKEN=…         # private web→sidecar hop (browsers never see it)
 
-# API keys (any of these missing → that feature is empty in the UI)
-OPENAI_API_KEY=…          # AI synthesis
-AISSTREAM_API_KEY=…       # vessel tracking
+# Data-source API keys (any missing → that feature degrades gracefully)
+FRED_API_KEY=…            # economics
+FINNHUB_API_KEY=…         # markets
+GROQ_API_KEY=…            # LLM intelligence assessments (free tier)
+AISSTREAM_API_KEY=…       # vessel tracking (relay agent skipped without it)
 …                         # see env.example for the full set
 ```
 
@@ -110,15 +112,15 @@ to run (see Troubleshooting).
 
 ```bash
 # 1. Get the code
-git clone <repo> ~/worldmonitor
-cd ~/worldmonitor
+git clone https://github.com/shulmeister/worldmonitor.git ~/mac-mini-apps/worldmonitor
+cd ~/mac-mini-apps/worldmonitor
 
 # 2. Create the secrets file
 cp macmini/env.example .env
-openssl rand -hex 32   # paste into SESSION_SECRET
-openssl rand -hex 32   # paste into ENCRYPTION_KEY
-openssl rand -hex 32   # paste into INTERNAL_API_TOKEN
-openssl rand -hex 32   # paste into WEBHOOK_SIGNING_SECRET
+openssl rand -hex 32   # paste into REDIS_PASSWORD
+openssl rand -hex 32   # paste into REDIS_TOKEN
+openssl rand -hex 32   # paste into RELAY_SHARED_SECRET
+openssl rand -hex 32   # paste into LOCAL_API_TOKEN
 $EDITOR .env           # fill the API keys you actually need
 
 # 3. Build the bundle
@@ -139,7 +141,7 @@ Re-run `install-launchd.sh` (idempotent) when you change ports/schedules
 ## Update
 
 ```bash
-cd ~/worldmonitor
+cd ~/mac-mini-apps/worldmonitor
 git fetch upstream && git merge upstream/main
 macmini/deploy.sh
 
@@ -186,6 +188,8 @@ tail -f ~/logs/worldmonitor-{redis,redis-rest,relay,api,web,seeders}.log
 launchctl kickstart -k gui/$(id -u)/com.coloradocareassist.worldmonitor-api
 ```
 
-`kickstart -k` only rolls workers — it does **not** pick up env changes. To
-re-read `.env` after editing it, re-run `macmini/install-launchd.sh` (it
-bootouts + bootstraps every label).
+Unlike most services on this machine (which get env injected by launchd),
+these wrappers re-source `<repo>/.env` on every exec — so `kickstart -k`
+**does** pick up `.env` edits. Re-run `macmini/install-launchd.sh` only for
+plist-level changes (ports, schedule) or to install the relay after adding
+`AISSTREAM_API_KEY`.
