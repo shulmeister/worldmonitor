@@ -175,6 +175,8 @@ function serveFile(req, res, absPath, headers) {
     try { res.writeHead(200, headers); } catch { stream.destroy(); res.destroy(); return; }
     stream.pipe(res);
   });
+  // Client aborted mid-download — free the fd instead of leaking a paused stream.
+  res.on('close', () => { if (!res.writableFinished) stream.destroy(); });
 }
 
 const ACCESS_LOG = (method, urlPath, status, ms) =>
@@ -240,9 +242,14 @@ function handleStatic(req, res, urlPath, start) {
     }
   }
 
-  const headers = target.endsWith('dashboard.html')
-    ? { ...DASHBOARD_HEADERS, 'Content-Type': MIME.html }
-    : { ...ASSET_HEADERS, 'Content-Type': mimeFor(target) };
+  // Mirror nginx `location /`: dashboard CSP + no-cache on EVERY top-level
+  // path (the real file when it exists, else the dashboard.html fallback),
+  // with the real Content-Type. Immutable caching lives only in the asset
+  // trees above — never on HTML variants or the service worker.
+  const headers = {
+    ...DASHBOARD_HEADERS,
+    'Content-Type': target.endsWith('.html') ? MIME.html : mimeFor(target),
+  };
   serveFile(req, res, target, headers);
   ACCESS_LOG(req.method, urlPath, 200, Date.now() - start);
 }
