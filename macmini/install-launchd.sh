@@ -24,7 +24,7 @@ LAUNCH_DOMAIN="gui/$(id -u)"
 LABEL_PREFIX="com.coloradocareassist.worldmonitor"
 
 # ---------- service definitions (dependency order) ----------
-SERVICES=(redis redis-rest relay api web seeders)
+SERVICES=(redis redis-rest relay api web seeders insights)
 
 # Long-running service ports (informational status check).
 # NOTE: bash 3.2 (Apple-shipped) lacks `declare -A`, so map svc→port via case.
@@ -39,11 +39,12 @@ port_for() {
   esac
 }
 
-# mode_for: only `seeders` is a one-shot refresher; everything else is long-lived.
+# mode_for: `seeders` and `insights` are one-shot refreshers (StartInterval);
+# everything else is long-lived (KeepAlive).
 mode_for() {
   case "$1" in
-    seeders) printf 'oneshot\n' ;;
-    *)       printf 'long\n' ;;
+    seeders|insights) printf 'oneshot\n' ;;
+    *)                printf 'long\n' ;;
   esac
 }
 
