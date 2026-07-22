@@ -25,8 +25,8 @@ without recreating them.
 ```
                                   ┌───────────────────────────────┐
                                   │       Cloudflare Tunnel       │
-                                  │ worldmonitor.coloradocare-    │
-                                  │ assist.com → 127.0.0.1:3040   │
+                                  │ world.coloradocareassist.com  │
+                                  │        → 127.0.0.1:3040       │
                                   │ (cloudflared on this host)    │
                                   └───────────────┬───────────────┘
                                                   │ HTTPS (443)
