@@ -1,0 +1,2 @@
+# Redis AOF/RDB persistence for the native stack (run/redis.sh --dir)
+redis-data/

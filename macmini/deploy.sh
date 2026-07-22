@@ -39,7 +39,7 @@ run_stage "npm ci --ignore-scripts" \
   npm ci --ignore-scripts
 
 run_stage "npm install --no-save redis@4 (redis-rest proxy dep — mirrors docker/Dockerfile.redis-rest)" \
-  npm install --no-save redis@4 --no-audit --no-fund
+  npm install --no-save --ignore-scripts redis@4 --no-audit --no-fund
 
 run_stage "scripts/ npm install (relay deps)" \
   bash -c "cd scripts && npm install --no-audit --no-fund"
