@@ -19,6 +19,12 @@ import { fileURLToPath } from 'node:url';
 const PORT = Number(process.env.WM_WEB_PORT) || 3040;
 const API_PORT = Number(process.env.LOCAL_API_PORT) || 46123;
 const API_TOKEN = process.env.LOCAL_API_TOKEN || '';
+// Self-host operator key. The intelligence tier (risk-scores/CII/theater-posture)
+// gates on X-WorldMonitor-Key ∈ WORLDMONITOR_VALID_KEYS — the same env the hosted
+// product fills with customer keys. We inject the FIRST valid key on the private
+// hop so those panels work on this personal, tunnel-fronted dashboard. The browser
+// never sees it (same as LOCAL_API_TOKEN). Empty ⇒ nothing injected (panels stay gated).
+const WM_OPERATOR_KEY = (process.env.WORLDMONITOR_VALID_KEYS || '').split(',').map(s => s.trim()).filter(Boolean)[0] || '';
 const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
 const DIST_DIR = path.resolve(process.env.WM_DIST_DIR || path.join(SCRIPT_DIR, '..', 'dist'));
 
@@ -278,6 +284,10 @@ function handleApiProxy(req, res, urlPath, start) {
   outHeaders['origin'] = 'http://localhost';
   // Overwrite any client Authorization — the token never leaves the private hop.
   outHeaders['authorization'] = `Bearer ${API_TOKEN}`;
+  // Inject the operator key so the intelligence tier (CII/risk/posture) serves this
+  // self-host. Overwrite any client-supplied value — the real key stays server-side.
+  if (WM_OPERATOR_KEY) outHeaders['x-worldmonitor-key'] = WM_OPERATOR_KEY;
+  else delete outHeaders['x-worldmonitor-key'];
 
   let proxyReq;
   try {
