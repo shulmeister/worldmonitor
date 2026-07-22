@@ -226,7 +226,9 @@ function handleStatic(req, res, urlPath, start) {
     // Mirrors nginx `try_files $uri $uri/ /dashboard.html` — paths with no
     // extension are not assumed to be files.
     const safe = safeJoinDist(urlPath);
-    if (safe && fs.existsSync(safe) && fs.statSync(safe).isFile()) {
+    let st = null;
+    if (safe) { try { st = fs.statSync(safe); } catch { st = null; } }
+    if (st && st.isFile()) {
       target = safe;
     } else {
       target = path.join(DIST_DIR, 'dashboard.html');
@@ -298,9 +300,11 @@ function handleApiProxy(req, res, urlPath, start) {
     }
   });
 
-  req.on('close', () => {
-    // Client gave up — abort the upstream so we don't leak sockets.
-    proxyReq.destroy();
+  res.on('close', () => {
+    // Abort upstream ONLY on real client aborts. req 'close' fires on normal
+    // request completion on Node >=16, which killed every proxied call;
+    // res 'close' with an unfinished response is the actual abort signal.
+    if (!res.writableFinished) proxyReq.destroy();
   });
 
   req.pipe(proxyReq);
