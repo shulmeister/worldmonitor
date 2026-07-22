@@ -141,8 +141,8 @@ function mimeFor(filePath) {
 // ---------- helpers ----------
 
 function safeJoinDist(urlPath) {
-  // urlPath is the decoded path with no query. Strip leading slashes, decode
-  // was already done by http.IncomingMessage's URL parser. Reject NUL bytes and
+  // urlPath is the percent-decoded pathname (no query) — decoded once in the
+  // request handler; node:http does NOT pre-decode req.url. Reject NUL bytes and
   // anything that resolves outside DIST_DIR.
   if (urlPath.includes('\0')) return null;
   const cleaned = urlPath.replace(/^\/+/, '');
@@ -160,8 +160,13 @@ function send(res, status, body, headers = {}) {
 function serveFile(req, res, absPath, headers) {
   // Stream the file so we don't materialize large textures/audio into memory.
   const stream = fs.createReadStream(absPath);
-  stream.on('error', () => {
-    send(res, 500, 'Internal Server Error', { 'Content-Type': 'text/plain; charset=utf-8' });
+  stream.on('error', (err) => {
+    // Headers may already be out (stream errored mid-body) — a second
+    // writeHead here would throw inside the listener and kill the process.
+    if (res.headersSent) { res.destroy(); return; }
+    const status = err.code === 'ENOENT' || err.code === 'EISDIR' ? 404 : 500;
+    send(res, status, status === 404 ? 'Not Found' : 'Internal Server Error',
+      { 'Content-Type': 'text/plain; charset=utf-8' });
   });
   res.writeHead(200, headers);
   stream.pipe(res);
@@ -206,7 +211,11 @@ function handleStatic(req, res, urlPath, start) {
       send(res, 400, 'Bad Request', { 'Content-Type': 'text/plain; charset=utf-8' });
       return ACCESS_LOG(req.method, urlPath, 400, Date.now() - start);
     }
-    if (!fs.existsSync(safe)) {
+    let st;
+    try { st = fs.statSync(safe); } catch { st = null; }
+    if (!st || !st.isFile()) {
+      // Directories included: nginx returns 404 for GET /assets/; streaming a
+      // directory would emit EISDIR after writeHead and crash the process.
       send(res, 404, 'Not Found', { 'Content-Type': 'text/plain; charset=utf-8' });
       return ACCESS_LOG(req.method, urlPath, 404, Date.now() - start);
     }
@@ -264,8 +273,13 @@ function handleApiProxy(req, res, urlPath, start) {
       timeout: 120_000,
     },
     (proxyRes) => {
-      // Stream upstream response verbatim — status, headers, body.
-      res.writeHead(proxyRes.statusCode || 502, proxyRes.headers);
+      // Stream upstream response back — but drop hop-by-hop headers; Node has
+      // already decoded chunked framing, so re-declaring it would be a lie.
+      const h = { ...proxyRes.headers };
+      delete h['connection'];
+      delete h['keep-alive'];
+      delete h['transfer-encoding'];
+      res.writeHead(proxyRes.statusCode || 502, h);
       proxyRes.pipe(res);
     }
   );
@@ -299,21 +313,29 @@ function handleApiProxy(req, res, urlPath, start) {
 
 const server = http.createServer((req, res) => {
   const start = Date.now();
-  // node:http gives us a parsed URL on the request.
-  const urlPath = req.url || '/';
+  // req.url is RAW: it still has the query string and percent-encoding.
+  // Route on the decoded pathname; hand the raw URL to the API proxy so the
+  // sidecar receives the query string untouched.
+  const rawUrl = req.url || '/';
+  let pathname;
+  try {
+    pathname = decodeURIComponent(new URL(rawUrl, 'http://internal').pathname);
+  } catch {
+    return send(res, 400, 'Bad Request', { 'Content-Type': 'text/plain; charset=utf-8' });
+  }
 
   // Healthz short-circuits before any static work.
-  if (req.method === 'GET' && urlPath === '/healthz') {
+  if (req.method === 'GET' && pathname === '/healthz') {
     handleHealthz(req, res);
-    return ACCESS_LOG(req.method, urlPath, 200, Date.now() - start);
+    return ACCESS_LOG(req.method, pathname, 200, Date.now() - start);
   }
 
   // API proxy takes precedence over static (matches nginx location /api/).
-  if (urlPath === '/api' || urlPath.startsWith('/api/')) {
-    return handleApiProxy(req, res, urlPath, start);
+  if (pathname === '/api' || pathname.startsWith('/api/')) {
+    return handleApiProxy(req, res, rawUrl, start);
   }
 
-  handleStatic(req, res, urlPath, start);
+  handleStatic(req, res, pathname, start);
 });
 
 server.listen(PORT, '127.0.0.1', () => {
