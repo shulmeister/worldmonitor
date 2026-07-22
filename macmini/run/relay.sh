@@ -10,10 +10,19 @@ cd "$REPO_ROOT"
 [ -f .env ] || { echo "FATAL: $REPO_ROOT/.env missing — copy macmini/env.example" >&2; exit 1; }
 set -a; source .env; set +a
 
+# Fail fast on an unfilled .env — a CHANGE_ME REDIS_TOKEN would otherwise become
+# a publicly-known bearer for the Redis REST proxy (Fable review, PR #1).
+for _v in REDIS_PASSWORD REDIS_TOKEN RELAY_SHARED_SECRET LOCAL_API_TOKEN; do
+  case "${!_v:-}" in
+    ""|CHANGE_ME) echo "FATAL: $_v is unset or CHANGE_ME in .env" >&2; exit 1 ;;
+  esac
+done
+
 # Relay resolves scripts/package.json deps (fast-xml-parser, ws, etc.) from
 # scripts/node_modules — that dir is populated by deploy.sh.
 cd "$REPO_ROOT/scripts"
 
+export HOST=127.0.0.1  # loopback only — Docker published these on 127.0.0.1; native must too
 export PORT="$WM_RELAY_PORT"
 export UPSTASH_REDIS_REST_URL="http://127.0.0.1:$WM_REDIS_REST_PORT"
 export UPSTASH_REDIS_REST_TOKEN="$REDIS_TOKEN"
