@@ -131,8 +131,10 @@ macmini/install-launchd.sh
 macmini/run/seeders.sh         # exits 0 when done; seeders agent will re-run every 30 min
 ```
 
-`install-launchd.sh` is idempotent — re-run it after editing `.env` or
-changing ports and the affected services will be bootout'd and re-bootstrapped.
+Every wrapper re-sources `.env` on exec, so plain `.env` edits only need a
+`launchctl kickstart -k gui/$(id -u)/<label>` of the affected services.
+Re-run `install-launchd.sh` (idempotent) when you change ports/schedules
+(plist content) or add `AISSTREAM_API_KEY` (it installs the relay agent).
 
 ## Update
 
@@ -164,7 +166,7 @@ other `com.coloradocareassist.*` LaunchAgent on the machine.
 | ------- | ------------ | --- |
 | Every service dies at boot | `<repo>/.env` missing or unreadable | `cp macmini/env.example .env && $EDITOR .env` |
 | `0/55 OK health` in the UI | Seeders haven't run yet | `macmini/run/seeders.sh` once, or wait 30 min |
-| Map shows no vessels | `AISSTREAM_API_KEY` unset or wrong | Add key to `.env`, `launchctl kickstart -k gui/$(id -u)/com.coloradocareassist.worldmonitor-seeders` |
+| Map shows no vessels | `AISSTREAM_API_KEY` unset (relay agent is skipped without it) | Add key to `.env`, re-run `macmini/install-launchd.sh` (installs + starts the relay) |
 | `launchctl bootstrap` errors on a label that worked yesterday | Stale `disabled` override | `launchctl enable gui/$(id -u)/<label>` then re-run `macmini/install-launchd.sh` |
 | Cloudflare tunnel 502s | `web` died | `tail -50 ~/logs/worldmonitor-web.log`, then `launchctl kickstart -k gui/$(id -u)/com.coloradocareassist.worldmonitor-web` |
 | All services log "ECONNREFUSED 127.0.0.1:6390" | Redis isn't up | Check `~/logs/worldmonitor-redis.log`; the installer bootstraps in dep order so this should self-heal on next install |
