@@ -146,4 +146,34 @@ describe('Frontend bootstrap runtime behavior', () => {
     assert.equal(callbackCount, 1);
     assert.equal(getBootstrapHydrationState().tiers.slow.source, 'none');
   });
+
+  it('retries the slow tier after a transient failure and surfaces the recovered data', async () => {
+    // Regression for the world.coloradocareassist.com stuck-loader state:
+    // when the first slow-tier attempt fails (cold sidecar or wm-session 503
+    // cascade), the bootstrap loop must re-issue the request and hydrate
+    // the panel skeletons instead of leaving them stuck forever.
+    const requests = installFetchStub();
+
+    const boot = fetchBootstrapData(() => {});
+    await tick();
+    tierRequests(requests, 'fast')[0]!.deferred.resolve(jsonResponse({ fastKey: true }));
+    await boot;
+    await tick();
+
+    const firstSlow = tierRequests(requests, 'slow')[0]!;
+    firstSlow.deferred.reject(new Error('first slow tier failed (transient)'));
+    // The retry sits in a 5-8s setTimeout (8s in this Node test env where
+    // isDesktopRuntime() returns false); wait for the new request to be
+    // issued before resolving it.
+    await new Promise((resolve) => setTimeout(resolve, 12_000));
+    const retry = tierRequests(requests, 'slow')[1];
+    assert.ok(retry, 'slow tier should be retried after a transient failure');
+    retry.deferred.resolve(jsonResponse({ recoveredKey: 'recovered' }));
+
+    // The retry's .then() runs as a microtask after the fetch resolves. Give
+    // the chain a few ticks to flush so lastHydrationState is updated.
+    for (let i = 0; i < 5; i += 1) await tick();
+    assert.equal(getHydratedData('recoveredKey'), 'recovered');
+    assert.equal(getBootstrapHydrationState().tiers.slow.source, 'live');
+  });
 });

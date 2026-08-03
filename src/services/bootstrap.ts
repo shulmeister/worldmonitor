@@ -297,27 +297,59 @@ function scheduleSlowTierFetch(generation: number, onSlowSettled?: () => void): 
         return;
       }
 
-      const slowCtrl = new AbortController();
-      activeSlowCtrl = slowCtrl;
-      const slowTimeout = setTimeout(() => slowCtrl.abort(), desktop ? 8_000 : 3_000);
+      // Slow tier budget. Cold CF cache + first-time sidecar warmup can run
+      // ~30-60s (per live observations on world.coloradocareassist.com), so
+      // 3-8s is too aggressive and aborts on the very request that would
+      // hydrate the panel skeletons. Bump to 20-30s and add a one-shot retry
+      // so a transient timeout still produces a populated cache instead of
+      // leaving every panel stuck in its loading skeleton.
+      const slowBudgetMs = desktop ? 30_000 : 20_000;
 
-      void fetchTier('slow', slowCtrl.signal, isCurrentGeneration)
-        .then((slowState) => {
+      const runOnce = (attempt: number): Promise<void> => {
+        if (!isCurrentGeneration()) return Promise.resolve();
+        const slowCtrl = new AbortController();
+        activeSlowCtrl = slowCtrl;
+        const slowTimeout = setTimeout(() => slowCtrl.abort(), slowBudgetMs);
+        const settle = (slowState: BootstrapTierHydrationState): void => {
           if (!isCurrentGeneration()) return;
           lastHydrationState = {
             source: combineHydrationSources([lastHydrationState.tiers.fast, slowState]),
             tiers: { fast: lastHydrationState.tiers.fast, slow: slowState },
           };
-        })
-        .catch(() => {
-          // Background failure: leave the slow keys un-hydrated; consumers refetch on demand.
-        })
-        .finally(() => {
-          clearTimeout(slowTimeout);
-          if (activeSlowCtrl === slowCtrl) activeSlowCtrl = null;
-          if (isCurrentGeneration()) onSlowSettled?.();
-          resolve();
-        });
+        };
+        const mayRetry = (): void => {
+          if (attempt === 0 && isCurrentGeneration()) {
+            // One-shot retry: a transient cold-start (e.g. wm-session 503
+            // cascade, sidecar warming up) shouldn't leave every panel stuck
+            // in its loading skeleton. Schedule a second attempt in the
+            // background; if it succeeds, the .then above populates the
+            // cache and updates lastHydrationState.
+            setTimeout(
+              () => { void runOnce(attempt + 1); },
+              desktop ? 5_000 : 8_000,
+            );
+          }
+        };
+        return fetchTier('slow', slowCtrl.signal, isCurrentGeneration)
+          .then((slowState) => {
+            settle(slowState);
+            if (slowState.source === 'none' && slowState.updatedAt === null) {
+              mayRetry();
+            }
+          })
+          .catch(() => {
+            mayRetry();
+          })
+          .finally(() => {
+            clearTimeout(slowTimeout);
+            if (activeSlowCtrl === slowCtrl) activeSlowCtrl = null;
+          });
+      };
+
+      void runOnce(0).finally(() => {
+        if (isCurrentGeneration()) onSlowSettled?.();
+        resolve();
+      });
     });
 
     if (!isCurrentGeneration()) {

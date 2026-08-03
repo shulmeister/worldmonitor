@@ -133,8 +133,15 @@ export default async function handler(req, ctx) {
   }
 
   // Rate-limit per IP. Without this, an attacker can farm tokens cheaply.
-  // Token TTL is 12h, so this route uses a lower, fail-closed issuance budget
-  // instead of inheriting the availability-first global fallback.
+  // Token TTL is 12h, so this route uses a lower issuance budget instead of
+  // inheriting the availability-first global fallback. The session endpoint
+  // is special-cased: when the rate-limit service is degraded (Redis missing
+  // config or a transient error), the mint is HMAC-only and does not depend
+  // on Redis, so we fall open and still issue the cookie. Without the cookie
+  // every dashboard panel stays in its loading skeleton until the limit
+  // service recovers, which is the exact failure mode the
+  // "concentrate heartbeat reliability" fix targets. A real quota exhaustion
+  // (429) still returns immediately to defend against token farming.
   const rl = await checkRateLimit(req, cors, {
     failClosed: true,
     ctx,
@@ -142,9 +149,18 @@ export default async function handler(req, ctx) {
     limit: SESSION_RATE_LIMIT_PER_MINUTE,
     window: SESSION_RATE_LIMIT_WINDOW,
   });
+  let rateLimitDegradedHeaders = null;
   if (rl) {
-    emitWmSessionUsage(ctx, req, rl, startedAt, rl.status === 429 ? 'rate_limit_429' : 'rate_limit_degraded');
-    return rl;
+    if (rl.status === 503) {
+      // Fail-open: forward the degraded marker to operators, then continue
+      // to mint the cookie as if the limit was a pass. The actual mint
+      // (HMAC) does not touch Redis.
+      rateLimitDegradedHeaders = rl.headers;
+      emitWmSessionUsage(ctx, req, rl, startedAt, 'rate_limit_degraded_fail_open');
+    } else {
+      emitWmSessionUsage(ctx, req, rl, startedAt, rl.status === 429 ? 'rate_limit_429' : 'rate_limit_degraded');
+      return rl;
+    }
   }
 
   let issued;
@@ -168,6 +184,19 @@ export default async function handler(req, ctx) {
   }
 
   let headers = appendHeader(cors, 'Set-Cookie', sessionCookie(req, SESSION_COOKIE, issued.token));
+
+  // Forward the rate-limit degraded marker (X-RateLimit-Mode, Retry-After)
+  // onto the success response so operators can still see the degraded state
+  // even though the user received a 200. Skip headers that cors already
+  // owns (content-type, set-cookie, access-control-*) to avoid duplicates.
+  if (rateLimitDegradedHeaders) {
+    for (const [name, value] of rateLimitDegradedHeaders.entries()) {
+      const lower = name.toLowerCase();
+      if (lower === 'set-cookie' || lower === 'content-type') continue;
+      if (lower.startsWith('access-control-')) continue;
+      headers.append(name, value);
+    }
+  }
 
   // Best-effort cleanup for old JS-readable cookies only when replacing that
   // key. A no-key session refresh must preserve existing HttpOnly key cookies.

@@ -293,20 +293,49 @@ test('No origin (curl) is allowed (rate limit + token TTL are the throttles)', a
   assert.match(cookieValue(setCookies(resp), 'wm-session'), /^wms_/);
 });
 
-test('POST returns degraded 503 without issuing a token when Redis limiter config is missing', async () => {
+test('POST still mints a session cookie when Redis limiter config is missing (fail-open)', async () => {
+  // Regression: when the Redis rate-limit service is unavailable, the session
+  // endpoint used to return a degraded 503 that left every dashboard panel
+  // stuck in its loading skeleton. The endpoint now mints the cookie anyway
+  // and tags the response with the degraded marker + a fresh 12h TTL so the
+  // browser unblocks immediately. Token minting itself is HMAC-only and
+  // does not touch Redis.
   delete process.env.UPSTASH_REDIS_REST_URL;
   delete process.env.UPSTASH_REDIS_REST_TOKEN;
+  // Reset the rate-limit cache AFTER deleting the env so the next call to
+  // getRatelimit() actually sees the missing config instead of a cached
+  // Ratelimit object built from a previous test's env.
   __resetRateLimitForTest();
 
   const resp = await handler(makeReq('POST', { origin: 'https://worldmonitor.app' }));
 
-  assert.equal(resp.status, 503);
+  assert.equal(resp.status, 200);
   assert.equal(resp.headers.get('X-RateLimit-Mode'), 'degraded');
   assert.equal(resp.headers.get('Retry-After'), '5');
   assert.equal(resp.headers.get('access-control-allow-origin'), 'https://worldmonitor.app');
-  assert.equal(cookieValue(setCookies(resp), 'wm-session'), '');
+  const token = cookieValue(setCookies(resp), 'wm-session');
+  assert.match(token, /^wms_/, 'should still issue a wms_ session cookie when rate-limit is degraded');
   const body = await resp.json();
-  assert.match(body.error, /rate-limit service temporarily unavailable/i);
+  assert.equal(typeof body.exp, 'number');
+});
+
+test('POST still mints a session cookie when Redis throws mid-request (fail-open)', async () => {
+  // Same contract: a transient Redis error (network blip, slow script) must
+  // not black-hole the session cookie. The limiter is fail-open with a header
+  // marker, not a 503.
+  globalThis.fetch = async (input) => {
+    const url = input instanceof URL ? input.href : typeof input === 'string' ? input : input.url;
+    if (url.includes('fake.upstash.io')) {
+      throw new Error('fetch failed: ECONNRESET');
+    }
+    return originalFetch(input);
+  };
+
+  const resp = await handler(makeReq('POST', { origin: 'https://worldmonitor.app' }));
+  assert.equal(resp.status, 200);
+  assert.equal(resp.headers.get('X-RateLimit-Mode'), 'degraded');
+  const token = cookieValue(setCookies(resp), 'wm-session');
+  assert.match(token, /^wms_/);
 });
 
 test('POST returns 429 without issuing a token when the wm-session issuance budget is exhausted', async () => {
