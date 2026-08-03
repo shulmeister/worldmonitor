@@ -7,7 +7,11 @@ import { enqueueSentryCall, installPreInitErrorQueue, scheduleSentryInit } from 
 import { registerClsReporting } from '@/bootstrap/cls-report';
 import { registerInpReporting } from '@/bootstrap/inp-report';
 import { registerLcpReporting } from '@/bootstrap/lcp-report';
-import { initVercelAnalytics } from '@/bootstrap/secondary-startup';
+// initVercelAnalytics removed on the self-host: /_vercel/insights/script.js
+// is only served by Vercel deployments. Loading it on a Cloudflare-fronted
+// build 404s and spams every dashboard with a CSP/MIME console error.
+// Use initDebugBearRum() below for RUM (or plumb a Cloudflare RUM beacon
+// here if a self-hosted RUM is wanted).
 import { App } from './App';
 import { installUtmInterceptor } from './utils/utm';
 
@@ -384,7 +388,6 @@ const chunkReloadStorageKey = installChunkReloadGuard(__APP_VERSION__);
 // Product analytics are secondary startup work; RUM starts once the trusted
 // dashboard entry executes so it can observe page-load vitals.
 void initAnalytics();
-initVercelAnalytics();
 initDebugBearRum();
 
 // Initialize dynamic meta tags for sharing

@@ -1,6 +1,5 @@
 import { scheduleAfterFirstPaint } from '@/utils/after-paint';
 
-let vercelAnalyticsScheduled = false;
 let dashboardFontsScheduled = false;
 
 export interface DashboardFontContext {
@@ -77,18 +76,14 @@ export function initDeferredDashboardFonts(): void {
   scheduleAfterFirstPaint(loadDeferredDashboardFonts, 3000);
 }
 
-export function initVercelAnalytics(): void {
-  if (vercelAnalyticsScheduled || typeof window === 'undefined') return;
-  vercelAnalyticsScheduled = true;
-  scheduleAfterFirstPaint(() => {
-    void import('@vercel/analytics')
-      .then(({ inject }) => {
-        inject({
-          beforeSend: (event) => (Math.random() > 0.1 ? null : event),
-        });
-      })
-      .catch(() => {
-        // Analytics is best-effort. Ad blockers/offline users should not affect boot.
-      });
-  }, 3000);
-}
+// Vercel analytics was previously initialized here via `@vercel/analytics`,
+// which fetches `/_vercel/insights/script.js`. That endpoint is only served
+// by Vercel deployments, so on a Cloudflare-fronted self-host the request
+// 404s and every dashboard console shows:
+//
+//   Refused to execute script ... because its MIME type ('text/html') is
+//   not executable, and strict MIME type checking is enabled.
+//
+// Self-hosters don't need Vercel analytics. The RUM path is
+// initDebugBearRum() (called from src/main.ts). To re-enable, point the
+// basePath at a working RUM endpoint and re-introduce a guarded call.
