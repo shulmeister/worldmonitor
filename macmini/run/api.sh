@@ -12,7 +12,7 @@ set -a; source .env; set +a
 
 # Fail fast on an unfilled .env — a CHANGE_ME REDIS_TOKEN would otherwise become
 # a publicly-known bearer for the Redis REST proxy (Fable review, PR #1).
-for _v in REDIS_PASSWORD REDIS_TOKEN RELAY_SHARED_SECRET LOCAL_API_TOKEN; do
+for _v in REDIS_PASSWORD REDIS_TOKEN RELAY_SHARED_SECRET LOCAL_API_TOKEN WM_SESSION_SECRET; do
   case "${!_v:-}" in
     ""|CHANGE_ME) echo "FATAL: $_v is unset or CHANGE_ME in .env" >&2; exit 1 ;;
   esac
@@ -22,6 +22,10 @@ export LOCAL_API_PORT
 export LOCAL_API_MODE
 export LOCAL_API_CLOUD_FALLBACK
 export LOCAL_API_TOKEN
+# HMAC key for /api/wm-session short-lived session cookies. The sidecar
+# returns 503 "Session service not configured" if unset, which strands every
+# dashboard panel in its loading skeleton until it's set.
+export WM_SESSION_SECRET
 export UPSTASH_REDIS_REST_URL
 export UPSTASH_REDIS_REST_TOKEN="$REDIS_TOKEN"
 # No UPSTASH_ALLOW_INSECURE_HTTP here, unlike relay.sh: only scripts/ais-relay.cjs
