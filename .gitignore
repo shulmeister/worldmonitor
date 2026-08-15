@@ -15,6 +15,12 @@ public/crawlable-corpus.json
 .vercel
 api/\[domain\]/v1/\[rpc\].js
 api/\[\[...path\]\].js
+# Compiled per-source .ts handlers emitted next to their tracked `.ts`
+# source by `tsc` per tsconfig.api.json (every untracked sibling is a
+# build artifact; the .js files that are tracked in HEAD are unaffected
+# because gitignore does not affect tracked files). Placed before the
+# `!api/internal/*.js` negation below so that re-inclusion still resolves.
+api/**/*.js
 .claude/
 .cursor/
 CLAUDE.md
