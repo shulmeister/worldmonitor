@@ -18,8 +18,8 @@ api/\[\[...path\]\].js
 # Compiled per-source .ts handlers emitted next to their tracked `.ts`
 # source by `tsc` per tsconfig.api.json (every untracked sibling is a
 # build artifact; the .js files that are tracked in HEAD are unaffected
-# because gitignore does not affect tracked files). Placed before the
-# `!api/internal/*.js` negation below so that re-inclusion still resolves.
+# because gitignore does not affect tracked files). Nothing below may
+# re-include `.js` under api/ — see the api/internal/ note further down.
 api/**/*.js
 .claude/
 .cursor/
@@ -40,9 +40,12 @@ internal/
 # endpoints for internal callers like the Railway digest cron).
 # Scoped to SOURCE FILE TYPES ONLY so the parent `.env` / secrets ignore
 # rules stay in effect inside this directory. Do NOT widen to `**`.
+# `.js` is deliberately NOT re-included: this directory has no tracked
+# `.js` in HEAD, so every `.js` here is a `tsc` artifact of the sibling
+# `.ts` and must stay ignored by the `api/**/*.js` rule above. Adding
+# `!api/internal/*.js` back would leak build output into `git status`.
 !api/internal/
 !api/internal/*.ts
-!api/internal/*.js
 !api/internal/*.mjs
 test-results/
 src-tauri/sidecar/node/*
